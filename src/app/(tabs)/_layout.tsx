@@ -8,14 +8,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: '#F5FAF6',
-          borderTopWidth: 1,
-          borderTopColor: '#DCEDE2',
-          height: 78,
-          paddingBottom: 12,
-          paddingTop: 8,
-        },
+        tabBarStyle: { display: 'none' },
         tabBarActiveTintColor: palette.primary,
         tabBarInactiveTintColor: '#6F7F76',
         tabBarLabelStyle: {
@@ -36,7 +29,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="discover" options={{ title: 'Discover' }} />
-      <Tabs.Screen name="library" options={{ title: 'Library' }} />
+      <Tabs.Screen name="library" options={{ title: 'My library' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

@@ -11,6 +11,9 @@ export type Book = {
   reviews: number;
   ageRating: string;
   coverColors: [string, string];
+  coverImageUrl?: string;
+  sourceUrl?: string;
+  availability?: 'metadata_only' | 'provider_file';
   progress?: number;
   readingTime?: string;
 };
@@ -91,3 +94,36 @@ export const books: Book[] = [
     coverColors: ['#D36F35', '#F7D29C'],
   },
 ];
+
+export function toAppBook(book: import('../api/client').ApiBook): Book {
+  const palettes: [string, string][] = [
+    ['#1E5948', '#95D5B2'],
+    ['#28465E', '#8DC4D9'],
+    ['#6F3E34', '#E6B77D'],
+    ['#58467B', '#C3A8E8'],
+    ['#A24F3D', '#F1B878'],
+    ['#3E6270', '#A3D2D1'],
+  ];
+  const paletteIndex = [...(book.categories[0] ?? book.title)].reduce(
+    (total, character) => total + character.charCodeAt(0),
+    0,
+  ) % palettes.length;
+
+  return {
+    id: book.id,
+    title: book.title,
+    author: book.authors.join(', ') || 'Unknown author',
+    provider: book.provider,
+    description: book.description,
+    category: book.categories[0] ?? 'Literature',
+    language: book.language,
+    pages: book.pages ?? 0,
+    rating: book.ratingAvg,
+    reviews: book.ratingCount,
+    ageRating: book.ageRating,
+    coverColors: palettes[paletteIndex],
+    ...(book.coverImageUrl ? { coverImageUrl: book.coverImageUrl } : {}),
+    ...(book.sourceUrl ? { sourceUrl: book.sourceUrl } : {}),
+    availability: book.availability,
+  };
+}

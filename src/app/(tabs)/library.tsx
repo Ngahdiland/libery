@@ -1,52 +1,97 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Link } from 'expo-router';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { books } from '../../data/books';
+import { BookCover } from '../../components/BookCover';
+import { useAuth } from '../../context/AuthContext';
+import { useReadingLibrary, type LibraryStatus } from '../../context/ReadingLibraryContext';
 import { palette, radii, spacing } from '../../theme';
 
-const shelfEntries = [
-  { label: 'Reading', count: 3, tone: '#E1F4E7' },
-  { label: 'Want to Read', count: 12, tone: '#F2E7CB' },
-  { label: 'Finished', count: 28, tone: '#E2EBFF' },
-  { label: 'Favorites', count: 9, tone: '#F4DDE5' },
+type Shelf = LibraryStatus | 'favorites';
+
+const shelves: { id: Shelf; label: string; tone: string }[] = [
+  { id: 'reading', label: 'Reading', tone: '#E1F4E7' },
+  { id: 'want_to_read', label: 'Want to read', tone: '#F2E7CB' },
+  { id: 'finished', label: 'Finished', tone: '#E2EBFF' },
+  { id: 'favorites', label: 'Favorites', tone: '#F4DDE5' },
 ];
 
 export default function LibraryScreen() {
+  const { items, isLoaded, error } = useReadingLibrary();
+  const { user } = useAuth();
+  const [selectedShelf, setSelectedShelf] = useState<Shelf>('reading');
+  const selectedItems = items.filter((item) => selectedShelf === 'favorites'
+    ? item.isFavorite
+    : item.status === selectedShelf);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>My library</Text>
+        <Text style={styles.subtitle}>
+          {user ? 'Your reading list syncs with your Libery account.' : 'Your reading list is saved on this device.'}
+        </Text>
 
         <View style={styles.grid}>
-          {shelfEntries.map((shelf) => (
-            <View key={shelf.label} style={[styles.shelfCard, { backgroundColor: shelf.tone }]}>
-              <Text style={styles.shelfLabel}>{shelf.label}</Text>
-              <Text style={styles.shelfCount}>{shelf.count}</Text>
-            </View>
-          ))}
+          {shelves.map((shelf) => {
+            const count = shelf.id === 'favorites'
+              ? items.filter((item) => item.isFavorite).length
+              : items.filter((item) => item.status === shelf.id).length;
+            const selected = selectedShelf === shelf.id;
+            return (
+              <Pressable
+                key={shelf.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => setSelectedShelf(shelf.id)}
+                style={[styles.shelfCard, { backgroundColor: shelf.tone }, selected && styles.selectedShelf]}
+              >
+                <Text style={styles.shelfLabel}>{shelf.label}</Text>
+                <Text style={styles.shelfCount}>{count}</Text>
+              </Pressable>
+            );
+          })}
         </View>
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Currently reading</Text>
-          <Text style={styles.sectionAction}>Sync</Text>
+          <Text style={styles.sectionTitle}>{shelves.find((shelf) => shelf.id === selectedShelf)?.label}</Text>
+          <Text style={styles.sectionAction}>{selectedItems.length} {selectedItems.length === 1 ? 'book' : 'books'}</Text>
         </View>
 
-        {books.slice(0, 2).map((book) => (
-          <View key={book.id} style={styles.bookRow}>
-            <View style={[styles.cover, { backgroundColor: book.coverColors[0], borderColor: book.coverColors[1] }]}>
-              <Text style={styles.coverText}>{book.title}</Text>
-            </View>
-            <View style={styles.metaWrap}>
-              <Text style={styles.bookTitle}>{book.title}</Text>
-              <Text style={styles.bookAuthor}>{book.author}</Text>
-              <View style={styles.progressRow}>
-                <View style={styles.progressTrack}>
-                  <View style={[styles.progressFill, { width: `${book.progress ?? 0}%` }]} />
-                </View>
-                <Text style={styles.progressText}>{book.progress ?? 0}%</Text>
-              </View>
-            </View>
+        {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+        {!isLoaded && <Text style={styles.emptyDescription}>Loading your library…</Text>}
+        {isLoaded && selectedItems.length === 0 && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>Nothing on this shelf yet</Text>
+            <Text style={styles.emptyDescription}>Save books from Discover and they’ll appear here.</Text>
+            <Link href="/discover" style={styles.discoverLink}>Explore books</Link>
           </View>
+        )}
+
+        {selectedItems.map((item) => (
+          <Link key={item.book.id} href={`/book/${item.book.id}`} asChild>
+            <Pressable accessibilityRole="link" style={styles.bookRow}>
+              <View style={styles.cover}>
+                <BookCover book={item.book} compact height={88} />
+              </View>
+              <View style={styles.metaWrap}>
+                <Text style={styles.bookTitle} numberOfLines={2}>{item.book.title}</Text>
+                <Text style={styles.bookAuthor} numberOfLines={1}>{item.book.author}</Text>
+                <Text style={styles.statusLabel}>
+                  {item.status === 'want_to_read' ? 'Want to read' : item.status === 'finished' ? 'Finished' : 'Reading'}
+                  {item.isFavorite ? ' · Favorite' : ''}
+                </Text>
+                {item.status === 'reading' && (
+                  <View style={styles.progressRow}>
+                    <View style={styles.progressTrack}>
+                      <View style={[styles.progressFill, { width: `${item.progress}%` }]} />
+                    </View>
+                    <Text style={styles.progressText}>{item.progress}%</Text>
+                  </View>
+                )}
+              </View>
+            </Pressable>
+          </Link>
         ))}
       </ScrollView>
     </SafeAreaView>
@@ -71,6 +116,11 @@ const styles = StyleSheet.create({
     color: palette.textLight,
     fontSize: 30,
     fontWeight: '800',
+  },
+  subtitle: {
+    color: palette.muted,
+    fontSize: 13,
+    marginTop: 4,
     marginBottom: spacing.md,
   },
   grid: {
@@ -82,8 +132,13 @@ const styles = StyleSheet.create({
   shelfCard: {
     width: '48%',
     borderRadius: radii.lg,
+    borderWidth: 2,
+    borderColor: 'transparent',
     padding: spacing.md,
     marginBottom: 12,
+  },
+  selectedShelf: {
+    borderColor: palette.primary,
   },
   shelfLabel: {
     color: palette.textLight,
@@ -129,15 +184,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 88,
     borderRadius: radii.md,
-    justifyContent: 'flex-end',
-    padding: 8,
-    borderWidth: 1,
-  },
-  coverText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
-    lineHeight: 14,
+    overflow: 'hidden',
   },
   metaWrap: {
     flex: 1,
@@ -152,6 +199,12 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 12,
     marginTop: 4,
+  },
+  statusLabel: {
+    color: palette.primary,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 5,
   },
   progressRow: {
     flexDirection: 'row',
@@ -175,5 +228,32 @@ const styles = StyleSheet.create({
     color: palette.primaryDark,
     fontWeight: '700',
     fontSize: 12,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+    backgroundColor: '#EFF5F1',
+    borderRadius: radii.lg,
+  },
+  emptyTitle: {
+    color: palette.textLight,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  emptyDescription: {
+    color: palette.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 6,
+  },
+  discoverLink: {
+    color: palette.primary,
+    fontWeight: '700',
+    marginTop: spacing.md,
+  },
+  error: {
+    color: '#A9342B',
+    marginBottom: spacing.md,
   },
 });

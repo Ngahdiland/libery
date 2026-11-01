@@ -1,8 +1,11 @@
+import { Link } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState } from 'react';
 
+import { useAuth } from '../../context/AuthContext';
+import { useCatalog } from '../../context/CatalogContext';
 import { useReaderPreferences, type AgeGroup } from '../../context/ReaderPreferences';
-import { books } from '../../data/books';
 import { palette, radii, spacing } from '../../theme';
 
 const ageGroups: { id: AgeGroup; title: string; range: string }[] = [
@@ -10,41 +13,66 @@ const ageGroups: { id: AgeGroup; title: string; range: string }[] = [
   { id: 'teens', title: 'Teens', range: '13–17' },
   { id: 'adults', title: 'Adults', range: '18+' },
 ];
-const focusAreas = Array.from(new Set(books.map((book) => book.category)));
 const languages = ['English', 'French'];
 
 export default function ProfileScreen() {
   const { preferences, updatePreferences } = useReaderPreferences();
+  const { books } = useCatalog();
+  const { user, error: authError, signOut } = useAuth();
+  const [preferenceError, setPreferenceError] = useState<string | null>(null);
+  const focusAreas = Array.from(new Set(books.map((book) => book.category)));
+
+  const savePreferences = async (updates: Parameters<typeof updatePreferences>[0]) => {
+    setPreferenceError(null);
+    try {
+      await updatePreferences(updates);
+    } catch (error) {
+      setPreferenceError(error instanceof Error ? error.message : 'Could not save your preferences.');
+    }
+  };
 
   const toggleFocus = (focus: string) => {
     const focusSelection = preferences.focusAreas.includes(focus)
       ? preferences.focusAreas.filter((item) => item !== focus)
       : [...preferences.focusAreas, focus];
-    void updatePreferences({ focusAreas: focusSelection });
+    void savePreferences({ focusAreas: focusSelection });
   };
 
   const toggleLanguage = (language: string) => {
     const languageSelection = preferences.languages.includes(language)
       ? preferences.languages.filter((item) => item !== language)
       : [...preferences.languages, language];
-    if (languageSelection.length > 0) void updatePreferences({ languages: languageSelection });
+    if (languageSelection.length > 0) void savePreferences({ languages: languageSelection });
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <Text style={styles.heading}>Profile</Text>
-
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>A</Text>
+            <Text style={styles.avatarText}>{user?.displayName.slice(0, 1).toUpperCase() ?? 'A'}</Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.name}>Your reader profile</Text>
-            <Text style={styles.handle}>Personalized on this device</Text>
-            <Text style={styles.bio}>Choose what you like to read. Your selections are saved locally.</Text>
+            <Text style={styles.name}>{user?.displayName ?? 'Your reader profile'}</Text>
+            <Text style={styles.handle}>{user?.email ?? 'Personalized on this device'}</Text>
+            <Text style={styles.bio}>
+              {user ? 'Signed in to your Libery cloud library.' : 'Sign in to connect your account to the Atlas-backed book catalog.'}
+            </Text>
           </View>
         </View>
+        {user ? (
+          <Pressable accessibilityRole="button" onPress={() => void signOut()} style={styles.accountButton}>
+            <Text style={styles.accountButtonText}>Sign out of cloud library</Text>
+          </Pressable>
+        ) : (
+          <Link href="/sign-in" asChild>
+            <Pressable accessibilityRole="button" style={styles.accountButton}>
+              <Text style={styles.accountButtonText}>Sign in to cloud library</Text>
+            </Pressable>
+          </Link>
+        )}
+        {authError && <Text accessibilityRole="alert" style={styles.accountError}>{authError}</Text>}
+        {preferenceError && <Text accessibilityRole="alert" style={styles.accountError}>{preferenceError}</Text>}
 
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
@@ -72,7 +100,7 @@ export default function ProfileScreen() {
                   key={group.id}
                   accessibilityRole="button"
                   accessibilityState={{ selected }}
-                  onPress={() => void updatePreferences({ ageGroup: group.id })}
+                  onPress={() => void savePreferences({ ageGroup: group.id })}
                   style={[styles.chip, selected && styles.selectedChip]}
                 >
                   <Text style={[styles.chipTitle, selected && styles.selectedChipText]}>{group.title}</Text>
@@ -123,7 +151,9 @@ export default function ProfileScreen() {
           {preferences.ageGroup === 'kids' && (
             <View style={styles.guardianNotice}>
               <Text style={styles.guardianNoticeText}>
-                Accounts for children under 13 require verified guardian consent. This prototype only applies age filters locally.
+                Accounts for children under 13 require verified guardian consent. {user
+                  ? 'Your account age filter is also enforced by the Libery API.'
+                  : 'This setting filters sample books on this device.'}
               </Text>
             </View>
           )}
@@ -165,6 +195,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     shadowRadius: 10,
     elevation: 3,
+  },
+  accountButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.primary,
+    borderRadius: radii.md,
+    marginBottom: spacing.lg,
+  },
+  accountButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  accountError: {
+    color: '#A9342B',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
   },
   avatar: {
     width: 72,

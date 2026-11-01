@@ -1,13 +1,18 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Link } from 'expo-router';
 
 import { BookCard } from '../../components/BookCard';
-import { useReaderPreferences, isBookAllowedForAge } from '../../context/ReaderPreferences';
-import { books } from '../../data/books';
+import { BookCover } from '../../components/BookCover';
+import { useAuth } from '../../context/AuthContext';
+import { useCatalog } from '../../context/CatalogContext';
+import { isBookAllowedForAge, useReaderPreferences } from '../../context/ReaderPreferences';
 import { palette, radii, spacing } from '../../theme';
 
 export default function HomeScreen() {
   const { preferences } = useReaderPreferences();
+  const { books } = useCatalog();
+  const { user } = useAuth();
   const availableBooks = books.filter((book) =>
     isBookAllowedForAge(book.ageRating, preferences.ageGroup)
     && preferences.languages.includes(book.language),
@@ -16,13 +21,27 @@ export default function HomeScreen() {
   const recommendedBooks = availableBooks.filter((book) => preferences.focusAreas.includes(book.category));
   const focusBooks = recommendedBooks.length > 0 ? recommendedBooks : availableBooks;
 
+  if (!continueBook) {
+    return (
+      <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
+        <View style={styles.emptyState}>
+          <Text style={styles.heading}>Your library is ready</Text>
+          <Text style={styles.heroMeta}>Sign in to browse the books stored in your cloud catalog.</Text>
+          <Link href="/sign-in" asChild>
+            <Pressable style={styles.signInButton}><Text style={styles.signInText}>Sign in to Libery</Text></Pressable>
+          </Link>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <View>
             <Text style={styles.eyebrow}>Good evening</Text>
-            <Text style={styles.heading}>Amina</Text>
+            <Text style={styles.heading}>{user?.displayName ?? 'Reader'}</Text>
           </View>
           <View style={styles.notificationBadge}>
             <Text style={styles.badgeText}>3</Text>
@@ -41,16 +60,8 @@ export default function HomeScreen() {
               <Text style={styles.progressText}>{continueBook.progress ?? 0}%</Text>
             </View>
           </View>
-          <View
-            style={[
-              styles.heroCover,
-              {
-                backgroundColor: continueBook.coverColors[0],
-                borderColor: continueBook.coverColors[1],
-              },
-            ]}
-          >
-            <Text style={styles.heroCoverText}>{continueBook.title}</Text>
+          <View style={styles.heroCover}>
+            <BookCover book={continueBook} compact height={126} />
           </View>
         </View>
 
@@ -180,15 +191,8 @@ const styles = StyleSheet.create({
     width: 92,
     height: 126,
     borderRadius: radii.lg,
-    padding: 10,
-    borderWidth: 1,
-    justifyContent: 'flex-end',
-  },
-  heroCoverText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 20,
+    overflow: 'hidden',
+    alignItems: 'stretch',
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -210,5 +214,22 @@ const styles = StyleSheet.create({
   bookRow: {
     paddingRight: spacing.md,
     paddingBottom: 10,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  signInButton: {
+    backgroundColor: palette.primary,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginTop: spacing.md,
+  },
+  signInText: {
+    color: '#fff',
+    fontWeight: '700',
   },
 });

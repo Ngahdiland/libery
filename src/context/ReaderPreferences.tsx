@@ -1,6 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
+import { useAuth } from './AuthContext';
+import type { ApiUser } from '../api/client';
+
 export type AgeGroup = 'kids' | 'teens' | 'adults';
 
 export type ReaderPreferences = {
@@ -26,6 +29,7 @@ type PreferencesContextValue = {
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 
 export function ReaderPreferencesProvider({ children }: { children: React.ReactNode }) {
+  const { user, request, setUser } = useAuth();
   const [preferences, setPreferences] = useState(defaultPreferences);
   const [isLoaded, setIsLoaded] = useState(false);
 
@@ -54,7 +58,21 @@ export function ReaderPreferencesProvider({ children }: { children: React.ReactN
   }, []);
 
   const updatePreferences = useCallback(async (updates: Partial<ReaderPreferences>) => {
-    const updatedPreferences = { ...preferences, ...updates };
+    const currentPreferences = user ? {
+      ageGroup: user.ageGroup,
+      focusAreas: user.focusAreas,
+      languages: user.languages,
+    } : preferences;
+    const updatedPreferences = { ...currentPreferences, ...updates };
+
+    if (user) {
+      const result = await request<{ user: ApiUser }>('/me/preferences', {
+        method: 'PUT',
+        body: JSON.stringify(updatedPreferences),
+      });
+      setUser(result.user);
+    }
+
     setPreferences(updatedPreferences);
 
     try {
@@ -62,11 +80,17 @@ export function ReaderPreferencesProvider({ children }: { children: React.ReactN
     } catch {
       // Keep the current selection for this session if local storage is unavailable.
     }
-  }, [preferences]);
+  }, [preferences, request, setUser, user]);
+
+  const effectivePreferences = useMemo(() => user ? {
+    ageGroup: user.ageGroup,
+    focusAreas: user.focusAreas,
+    languages: user.languages,
+  } : preferences, [preferences, user]);
 
   const value = useMemo(
-    () => ({ preferences, isLoaded, updatePreferences }),
-    [preferences, isLoaded, updatePreferences],
+    () => ({ preferences: effectivePreferences, isLoaded, updatePreferences }),
+    [effectivePreferences, isLoaded, updatePreferences],
   );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
