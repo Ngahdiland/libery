@@ -5,11 +5,14 @@ import type {
   AppStore,
   Book,
   AdminAuditEvent,
+  CommunityPost,
+  CreateCommunityPostInput,
   LibraryBook,
   LibraryStatus,
   PublicBook,
   RefreshSession,
   UserPreferences,
+  UserProfileUpdates,
   UserRecord,
   ProviderStatus,
 } from '../types.js';
@@ -25,6 +28,20 @@ type LibraryDocument = {
   progress: number;
   isFavorite: boolean;
   updatedAt: Date;
+};
+type PostDocument = {
+  _id: ObjectId;
+  userId: string;
+  author: {
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  content: string;
+  bookId?: string;
+  likesCount: number;
+  commentsCount: number;
+  createdAt: Date;
 };
 
 function toUser(document: UserDocument): UserRecord {
@@ -75,15 +92,16 @@ export class MongoStore implements AppStore {
     private readonly books: Collection<BookDocument>,
     private readonly auditEvents: Collection<AuditDocument>,
     private readonly library: Collection<LibraryDocument>,
+    private readonly posts: Collection<PostDocument>,
   ) {}
 
-  static async connect(uri: string, dbName: string, tls = false) {
+  static async connect(uri: string, dbName: string, isProduction = false) {
     const client = new MongoClient(uri, {
       appName: 'libery-api',
       maxPoolSize: 20,
       minPoolSize: 0,
       serverSelectionTimeoutMS: 5000,
-      ...(tls ? { tls: true } : {}),
+      ...(isProduction ? { tls: true } : { tlsAllowInvalidCertificates: true }),
     });
     await client.connect();
     const db = client.db(dbName);
@@ -94,6 +112,7 @@ export class MongoStore implements AppStore {
       db.collection<BookDocument>('books'),
       db.collection<AuditDocument>('admin_audit_events'),
       db.collection<LibraryDocument>('user_library'),
+      db.collection<PostDocument>('community_posts'),
     );
     await store.ensureIndexes();
     return store;
@@ -117,6 +136,8 @@ export class MongoStore implements AppStore {
         { title: 'text', authors: 'text', provider: 'text', categories: 'text', tags: 'text' },
         { name: 'books_catalog_search' },
       ),
+      this.posts.createIndex({ createdAt: -1 }, { name: 'posts_created_at' }),
+      this.posts.createIndex({ userId: 1, createdAt: -1 }, { name: 'posts_user_created' }),
     ]);
   }
 
@@ -150,6 +171,78 @@ export class MongoStore implements AppStore {
       { returnDocument: 'after' },
     );
     return result ? toUser(result) : null;
+  }
+
+  async updateUserProfile(id: string, updates: UserProfileUpdates) {
+    if (!ObjectId.isValid(id)) return null;
+    const result = await this.users.findOneAndUpdate(
+      { _id: new ObjectId(id), status: 'active' },
+      { $set: updates },
+      { returnDocument: 'after' },
+    );
+    return result ? toUser(result) : null;
+  }
+
+  async createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost> {
+    const doc: Omit<PostDocument, '_id'> = {
+      userId: input.userId,
+      author: input.author,
+      content: input.content,
+      bookId: input.bookId,
+      likesCount: 0,
+      commentsCount: 0,
+      createdAt: new Date(),
+    };
+    const res = await this.posts.insertOne(doc as any);
+    let book: PublicBook | undefined;
+    if (input.bookId && ObjectId.isValid(input.bookId)) {
+      const bookDoc = await this.books.findOne({ _id: new ObjectId(input.bookId) });
+      if (bookDoc) book = toPublicBook(bookDoc);
+    }
+    return {
+      id: res.insertedId.toHexString(),
+      userId: doc.userId,
+      author: doc.author,
+      content: doc.content,
+      bookId: doc.bookId,
+      book,
+      likesCount: doc.likesCount,
+      commentsCount: doc.commentsCount,
+      createdAt: doc.createdAt,
+    };
+  }
+
+  async listCommunityPosts(limit = 20): Promise<CommunityPost[]> {
+    const docs = await this.posts.find().sort({ createdAt: -1 }).limit(limit).toArray();
+    const bookIds = docs.map((d) => d.bookId).filter((id): id is string => Boolean(id && ObjectId.isValid(id)));
+    const bookMap = new Map<string, PublicBook>();
+    if (bookIds.length > 0) {
+      const bookDocs = await this.books.find({ _id: { $in: bookIds.map((id) => new ObjectId(id)) } }).toArray();
+      for (const b of bookDocs) {
+        bookMap.set(b._id.toHexString(), toPublicBook(b));
+      }
+    }
+    return docs.map((d) => ({
+      id: d._id.toHexString(),
+      userId: d.userId,
+      author: d.author,
+      content: d.content,
+      bookId: d.bookId,
+      book: d.bookId ? bookMap.get(d.bookId) : undefined,
+      likesCount: d.likesCount ?? 0,
+      commentsCount: d.commentsCount ?? 0,
+      createdAt: d.createdAt,
+    }));
+  }
+
+  async likeCommunityPost(postId: string): Promise<number | null> {
+    if (!ObjectId.isValid(postId)) return null;
+    const result = await this.posts.findOneAndUpdate(
+      { _id: new ObjectId(postId) },
+      { $inc: { likesCount: 1 } },
+      { returnDocument: 'after' },
+    );
+    return result ? result.likesCount : null;
   }
 
   async listLibrary(userId: string, ageGroup: AgeGroup, languages: string[]) {
@@ -302,5 +395,4 @@ export class MongoStore implements AppStore {
   async close() {
     await this.client.close();
   }
-
 }

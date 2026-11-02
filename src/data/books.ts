@@ -16,6 +16,7 @@ export type Book = {
   availability?: 'metadata_only' | 'provider_file';
   progress?: number;
   readingTime?: string;
+  tags?: string[];
 };
 
 export const books: Book[] = [
@@ -116,6 +117,7 @@ export function toAppBook(book: import('../api/client').ApiBook): Book {
     provider: book.provider,
     description: book.description,
     category: book.categories[0] ?? 'Literature',
+    tags: book.categories,
     language: book.language,
     pages: book.pages ?? 0,
     rating: book.ratingAvg,

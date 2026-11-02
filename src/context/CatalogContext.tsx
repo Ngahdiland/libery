@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ApiBook } from '../api/client';
+import { apiRequest, type ApiBook } from '../api/client';
 import { books as sampleBooks, toAppBook, type Book } from '../data/books';
 import { useAuth } from './AuthContext';
 
@@ -26,7 +26,7 @@ const CatalogContext = createContext<CatalogContextValue | null>(null);
 const PAGE_SIZE = 50;
 
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
-  const { accessToken, isReady, request, user } = useAuth();
+  const { accessToken, isReady, user } = useAuth();
   const [cloudBooks, setCloudBooks] = useState<Book[]>([]);
   const [activeSearch, setActiveSearch] = useState({ query: '', category: '' });
   const [loadedToken, setLoadedToken] = useState<string | null>(null);
@@ -43,7 +43,6 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
     cursor?: string,
     search = { query: '', category: '' },
   ) => {
-    if (!accessToken) return;
     const token = accessToken;
     const currentRequestId = ++requestId.current;
     setIsLoading(true);
@@ -54,28 +53,27 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
       if (cursor) query.set('cursor', cursor);
       if (search.query) query.set('q', search.query);
       if (search.category) query.set('category', search.category);
-      const result = await request<CatalogResponse>(`/books?${query.toString()}`, {});
+      const result = await apiRequest<CatalogResponse>(`/books?${query.toString()}`, {}, token ?? undefined);
       if (currentRequestId !== requestId.current || token !== activeToken.current) return;
       const mapped = result.items.map(toAppBook);
       setCloudBooks((current) => cursor ? [...current, ...mapped] : mapped);
       setNextCursor(result.nextCursor);
       setTotal(result.total);
-      setLoadedToken(token);
+      setLoadedToken(token ?? 'guest');
       setError(null);
     } catch (requestError) {
       if (currentRequestId !== requestId.current || token !== activeToken.current) return;
       setErrorToken(token);
-      setError(requestError instanceof Error ? requestError.message : 'Could not load the cloud catalog.');
+      setError(requestError instanceof Error ? requestError.message : 'Could not load the catalog.');
     } finally {
       if (currentRequestId === requestId.current) setIsLoading(false);
     }
-  }, [accessToken, request]);
+  }, [accessToken]);
 
   useEffect(() => {
     activeToken.current = accessToken;
     requestId.current += 1;
     if (!isReady) return;
-    if (!accessToken) return;
     void Promise.resolve().then(() => fetchPage(undefined, activeSearchRef.current));
   }, [accessToken, fetchPage, isReady, user?.ageGroup, user?.languages]);
 
@@ -97,19 +95,22 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
   }, [activeSearch, fetchPage]);
 
   const activeError = accessToken === errorToken ? error : null;
-  const hasLoadedCurrentCatalog = Boolean(accessToken && accessToken === loadedToken);
-  const isInitialLoading = Boolean(accessToken && isReady && !hasLoadedCurrentCatalog && !activeError);
+  const hasLoadedCurrentCatalog = Boolean(loadedToken !== null);
+  const isInitialLoading = Boolean(isReady && !hasLoadedCurrentCatalog && !activeError && cloudBooks.length === 0);
+  const displayedBooks = cloudBooks.length > 0 ? cloudBooks : sampleBooks;
+  const displayedTotal = cloudBooks.length > 0 ? total : sampleBooks.length;
+
   const value = useMemo(() => ({
-    books: hasLoadedCurrentCatalog && !activeError ? cloudBooks : sampleBooks,
-    total: hasLoadedCurrentCatalog && !activeError ? total : sampleBooks.length,
-    isCloudCatalog: hasLoadedCurrentCatalog && !activeError,
+    books: displayedBooks,
+    total: displayedTotal,
+    isCloudCatalog: cloudBooks.length > 0 && !activeError,
     isLoading: isLoading || isInitialLoading,
     error: activeError,
-    hasMore: Boolean(hasLoadedCurrentCatalog && !activeError && nextCursor && cloudBooks.length < total),
+    hasMore: Boolean(cloudBooks.length > 0 && !activeError && nextCursor && cloudBooks.length < total),
     loadMore,
     refresh,
     search,
-  }), [activeError, cloudBooks, hasLoadedCurrentCatalog, isInitialLoading, isLoading, loadMore, nextCursor, refresh, search, total]);
+  }), [activeError, cloudBooks.length, displayedBooks, displayedTotal, isInitialLoading, isLoading, loadMore, nextCursor, refresh, search, total]);
 
   return <CatalogContext.Provider value={value}>{children}</CatalogContext.Provider>;
 }

@@ -1,14 +1,14 @@
-import { Router, type Request, type Response, type NextFunction } from 'express';
+import { Router, type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 import multer from 'multer';
 import { fileTypeFromBuffer } from 'file-type';
 import { v2 as cloudinary, type UploadApiResponse } from 'cloudinary';
-import type { RequestHandler } from 'express';
+// express types
 
 import { ApiError } from '../errors.js';
-import { requireAdminKey, requireAuth, requireVerifiedProvider } from '../middleware/auth.js';
+import { optionalAuth, requireAdminKey, requireAuth, requireVerifiedProvider } from '../middleware/auth.js';
 import {
   accessTokenExpiresIn,
   createAccessToken,
@@ -56,6 +56,19 @@ const preferencesSchema = z.object({
   focusAreas: z.array(z.string().trim().min(1).max(40)).max(20),
   languages: z.array(z.enum(['English', 'French'])).min(1).max(2),
 }).strict();
+const profileUpdateSchema = z.object({
+  displayName: z.string().trim().min(1).max(80).optional(),
+  bio: z.string().trim().max(300).optional(),
+  avatarUrl: z.string().max(2_000_000).optional(),
+  ageGroup: z.enum(['kids', 'teens', 'adults']).optional(),
+  focusAreas: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  languages: z.array(z.enum(['English', 'French'])).min(1).max(2).optional(),
+}).strict();
+const createPostSchema = z.object({
+  content: z.string().trim().min(1).max(2000),
+  bookId: z.string().regex(/^[a-fA-F0-9]{24}$/).optional(),
+}).strict();
+
 const libraryItemSchema = z.object({
   status: z.enum(['reading', 'want_to_read', 'finished']),
   progress: z.number().int().min(0).max(100),
@@ -73,6 +86,17 @@ const coverUpload = multer({
     callback(null, true);
   },
 }).single('cover');
+const avatarUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter(_request, file, callback) {
+    if (!allowedCoverTypes.has(file.mimetype)) {
+      callback(new ApiError(400, 'UNSUPPORTED_AVATAR_FORMAT', 'Avatar must be a JPEG, PNG, or WebP image.'));
+      return;
+    }
+    callback(null, true);
+  },
+}).single('avatar');
 
 const bookInputSchema = z.object({
   title: z.string().trim().min(1).max(200),
@@ -166,6 +190,7 @@ async function issueRefreshSession(store: AppStore, user: UserRecord) {
 export function createApiRouter(store: AppStore, config: AppConfig) {
   const router = Router();
   const auth = requireAuth(store, config);
+  const maybeAuth = optionalAuth(store, config);
   const admin = requireAdminKey(config);
   if (config.cloudinary) {
     cloudinary.config({
@@ -190,6 +215,21 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
           tooLarge ? 413 : 400,
           tooLarge ? 'COVER_TOO_LARGE' : 'INVALID_COVER_UPLOAD',
           tooLarge ? 'Cover images must be 5 MB or smaller.' : 'The cover upload is invalid.',
+        ));
+        return;
+      }
+      next(error);
+    });
+  };
+
+  const receiveAvatar: RequestHandler = (request, response, next) => {
+    avatarUpload(request, response, (error: unknown) => {
+      if (error instanceof multer.MulterError) {
+        const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+        next(new ApiError(
+          tooLarge ? 413 : 400,
+          tooLarge ? 'AVATAR_TOO_LARGE' : 'INVALID_AVATAR_UPLOAD',
+          tooLarge ? 'Avatar images must be 5 MB or smaller.' : 'The avatar upload is invalid.',
         ));
         return;
       }
@@ -280,6 +320,77 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
     response.json({ user: publicUser(request.user!) });
   });
 
+  router.put('/me/profile', auth, asyncRoute(async (request, response) => {
+    const updates = profileUpdateSchema.parse(request.body);
+    if (updates.ageGroup) {
+      const ageRank = { kids: 0, teens: 1, adults: 2 } as const;
+      if (ageRank[updates.ageGroup] > ageRank[request.user!.ageGroup]) {
+        throw new ApiError(403, 'AGE_GROUP_UPGRADE_BLOCKED', 'Age group can only be changed to a more restrictive setting.');
+      }
+    }
+    const user = await store.updateUserProfile(request.user!.id, updates);
+    if (!user) throw new ApiError(404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+    response.json({ user: publicUser(user) });
+  }));
+
+  router.post('/me/avatar', auth, receiveAvatar, asyncRoute(async (request, response) => {
+    const file = request.file;
+    if (!file) throw new ApiError(400, 'AVATAR_REQUIRED', 'Choose an image file to upload.');
+
+    const detectedType = await fileTypeFromBuffer(file.buffer);
+    if (!detectedType || detectedType.mime !== file.mimetype
+      || !['jpg', 'png', 'webp'].includes(detectedType.ext)) {
+      throw new ApiError(400, 'INVALID_AVATAR_CONTENT', 'The uploaded file is not a supported image.');
+    }
+
+    let avatarUrl: string;
+
+    if (config.cloudinary) {
+      try {
+        const uploaded = await new Promise<UploadApiResponse>((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream({
+            folder: `libery/avatars/${request.user!.id}`,
+            resource_type: 'image',
+            allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+            overwrite: true,
+            unique_filename: true,
+            use_filename: false,
+          }, (error, result) => {
+            if (error || !result) {
+              console.error('Cloudinary avatar upload failed, falling back to embedded storage.');
+              reject(error);
+              return;
+            }
+            resolve(result);
+          });
+          stream.end(file.buffer);
+        });
+
+        avatarUrl = cloudinary.url(uploaded.public_id, {
+          secure: true,
+          transformation: [
+            { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+            { quality: 'auto', fetch_format: 'auto' },
+          ],
+        });
+      } catch {
+        avatarUrl = `data:${detectedType.mime};base64,${file.buffer.toString('base64')}`;
+      }
+    } else {
+      avatarUrl = `data:${detectedType.mime};base64,${file.buffer.toString('base64')}`;
+    }
+
+    const user = await store.updateUserProfile(request.user!.id, { avatarUrl });
+    if (!user) throw new ApiError(404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+    response.status(200).json({ user: publicUser(user), avatarUrl });
+  }));
+
+  router.delete('/me/avatar', auth, asyncRoute(async (request, response) => {
+    const user = await store.updateUserProfile(request.user!.id, { avatarUrl: '' });
+    if (!user) throw new ApiError(404, 'ACCOUNT_NOT_FOUND', 'Account was not found.');
+    response.json({ user: publicUser(user) });
+  }));
+
   router.put('/me/preferences', auth, asyncRoute(async (request, response) => {
     const preferences = preferencesSchema.parse(request.body);
     const ageRank = { kids: 0, teens: 1, adults: 2 } as const;
@@ -317,15 +428,18 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
     response.status(204).end();
   }));
 
-  router.get('/books', auth, asyncRoute(async (request, response) => {
+  router.get('/books', maybeAuth, asyncRoute(async (request, response) => {
     const query = bookQuerySchema.parse(request.query);
-    const user = request.user!;
+    const user = request.user;
+    const ageGroup = user?.ageGroup ?? 'adults';
+    const defaultLanguages: ('English' | 'French')[] = ['English', 'French'];
+    const userLanguages = user?.languages ?? defaultLanguages;
     const languages = query.language
-      ? user.languages.filter((language) => language === query.language)
-      : user.languages;
+      ? userLanguages.filter((language) => language === query.language)
+      : userLanguages;
     const filter = {
-      ageGroup: user.ageGroup,
-      languages,
+      ageGroup,
+      languages: languages.length > 0 ? languages : defaultLanguages,
       ...(query.category ? { category: query.category } : {}),
       ...(query.language ? { language: query.language } : {}),
       ...(query.q ? { query: query.q } : {}),
@@ -341,11 +455,41 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
     });
   }));
 
-  router.get('/books/:id', auth, asyncRoute(async (request, response) => {
+  router.get('/books/:id', maybeAuth, asyncRoute(async (request, response) => {
     const id = z.string().regex(/^[a-fA-F0-9]{24}$/).parse(request.params.id);
-    const book = await store.findPublishedBook(id, request.user!.ageGroup, request.user!.languages);
+    const ageGroup = request.user?.ageGroup ?? 'adults';
+    const languages = request.user?.languages ?? ['English', 'French'];
+    const book = await store.findPublishedBook(id, ageGroup, languages);
     if (!book) throw new ApiError(404, 'BOOK_NOT_FOUND', 'Book was not found.');
     response.json({ book });
+  }));
+
+  router.get('/posts', maybeAuth, asyncRoute(async (request, response) => {
+    const limit = Math.min(Math.max(Number(request.query.limit) || 20, 1), 50);
+    const posts = await store.listCommunityPosts(limit);
+    response.json({ posts });
+  }));
+
+  router.post('/posts', auth, asyncRoute(async (request, response) => {
+    const body = createPostSchema.parse(request.body);
+    const post = await store.createCommunityPost({
+      userId: request.user!.id,
+      author: {
+        username: request.user!.username,
+        displayName: request.user!.displayName,
+        avatarUrl: request.user!.avatarUrl,
+      },
+      content: body.content,
+      bookId: body.bookId,
+    });
+    response.status(201).json({ post });
+  }));
+
+  router.post('/posts/:id/like', auth, asyncRoute(async (request, response) => {
+    const postId = z.string().min(1).parse(request.params.id);
+    const likesCount = await store.likeCommunityPost(postId);
+    if (likesCount === null) throw new ApiError(404, 'POST_NOT_FOUND', 'Post was not found.');
+    response.json({ likesCount });
   }));
 
   router.get('/provider/me', auth, requireVerifiedProvider, (request, response) => {

@@ -40,6 +40,35 @@ export function requireAuth(store: AppStore, config: AppConfig) {
   };
 }
 
+export function optionalAuth(store: AppStore, config: AppConfig) {
+  return async (request: Request, _response: Response, next: NextFunction) => {
+    try {
+      const authorization = request.header('authorization');
+      const match = authorization?.match(/^Bearer ([A-Za-z0-9._-]+)$/);
+      if (!match) {
+        next();
+        return;
+      }
+
+      let userId: string;
+      try {
+        userId = verifyAccessToken(match[1], config.jwtAccessSecret);
+      } catch {
+        next();
+        return;
+      }
+
+      const user = await store.findUserById(userId);
+      if (user && user.status === 'active') {
+        request.user = user;
+      }
+      next();
+    } catch {
+      next();
+    }
+  };
+}
+
 export function requireVerifiedProvider(request: Request, _response: Response, next: NextFunction) {
   if (request.user?.role !== 'provider' || request.user.providerStatus !== 'verified') {
     next(new ApiError(403, 'PROVIDER_VERIFICATION_REQUIRED', 'A verified provider account is required.'));

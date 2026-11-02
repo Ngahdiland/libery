@@ -16,11 +16,29 @@ export type ApiBook = {
   availability: 'metadata_only' | 'provider_file';
 };
 
+export type ApiCommunityPost = {
+  id: string;
+  userId: string;
+  author: {
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  content: string;
+  bookId?: string;
+  book?: ApiBook;
+  likesCount: number;
+  commentsCount: number;
+  createdAt: string;
+};
+
 export type ApiUser = {
   id: string;
   email: string;
   username: string;
   displayName: string;
+  avatarUrl?: string;
+  bio?: string;
   ageGroup: 'kids' | 'teens' | 'adults';
   focusAreas: string[];
   languages: string[];
@@ -74,11 +92,12 @@ export async function apiRequest<T>(
     throw new Error('Set EXPO_PUBLIC_API_URL in the app environment to connect the Libery API.');
   }
 
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const response = await fetch(`${baseUrl}/v1${path}`, {
     ...options,
     headers: {
       Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...options.headers,
     },
@@ -97,4 +116,27 @@ export async function apiRequest<T>(
     );
   }
   return payload as T;
+}
+
+export async function fetchCommunityPosts(limit = 20, accessToken?: string): Promise<ApiCommunityPost[]> {
+  const res = await apiRequest<{ posts: ApiCommunityPost[] }>(`/posts?limit=${limit}`, { method: 'GET' }, accessToken);
+  return res.posts;
+}
+
+export async function createCommunityPost(
+  input: { content: string; bookId?: string },
+  accessToken: string,
+): Promise<ApiCommunityPost> {
+  const res = await apiRequest<{ post: ApiCommunityPost }>('/posts', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, accessToken);
+  return res.post;
+}
+
+export async function likeCommunityPost(postId: string, accessToken?: string): Promise<number> {
+  const res = await apiRequest<{ likesCount: number }>(`/posts/${postId}/like`, {
+    method: 'POST',
+  }, accessToken);
+  return res.likesCount;
 }

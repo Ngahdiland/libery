@@ -17,9 +17,10 @@ export function BottomNavigation() {
   const pathname = usePathname();
   const router = useRouter();
   const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
-  const activeTab = pathname === '/' || pathname === '/(tabs)'
+  const normalizedPath = pathname.replace(/^\/\(tabs\)/, '') || '/';
+  const activeTab = normalizedPath === '/'
     ? 'home'
-    : items.find((item) => item.path === pathname)?.id;
+    : items.find((item) => item.path === normalizedPath || item.path === pathname)?.id;
 
   const closeQuickAdd = () => setIsQuickAddOpen(false);
 

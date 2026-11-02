@@ -46,3 +46,12 @@ export function apiKeyMatches(provided: string | undefined, expected: string | u
 }
 
 export const accessTokenExpiresIn = ACCESS_TOKEN_TTL_SECONDS;
+export const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+export function createResetToken() {
+  return randomBytes(32).toString('base64url');
+}
+
+export function hashResetToken(token: string) {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
+}

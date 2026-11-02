@@ -8,6 +8,8 @@ export type User = {
   email: string;
   username: string;
   displayName: string;
+  avatarUrl?: string;
+  bio?: string;
   ageGroup: AgeGroup;
   focusAreas: string[];
   languages: string[];
@@ -67,6 +69,13 @@ export type RefreshSession = {
   createdAt: Date;
 };
 
+export type PasswordResetToken = {
+  tokenHash: string;
+  userId: string;
+  expiresAt: Date;
+  createdAt: Date;
+};
+
 export type AdminAuditEvent = {
   action: 'provider_verified' | 'provider_rejected' | 'book_published' | 'book_removed';
   targetId: string;
@@ -74,6 +83,34 @@ export type AdminAuditEvent = {
 };
 
 export type UserPreferences = Pick<User, 'ageGroup' | 'focusAreas' | 'languages'>;
+export type UserProfileUpdates = Partial<Pick<User, 'displayName' | 'bio' | 'avatarUrl' | 'ageGroup' | 'focusAreas' | 'languages'>>;
+
+export type CommunityPost = {
+  id: string;
+  userId: string;
+  author: {
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  content: string;
+  bookId?: string;
+  book?: PublicBook;
+  likesCount: number;
+  commentsCount: number;
+  createdAt: Date;
+};
+
+export type CreateCommunityPostInput = {
+  userId: string;
+  author: {
+    username: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+  content: string;
+  bookId?: string;
+};
 
 export interface AppStore {
   findUserByEmail(email: string): Promise<UserRecord | null>;
@@ -81,6 +118,10 @@ export interface AppStore {
   findUserById(id: string): Promise<UserRecord | null>;
   createUser(input: Omit<UserRecord, 'id'>): Promise<UserRecord>;
   updateUserPreferences(id: string, preferences: UserPreferences): Promise<UserRecord | null>;
+  updateUserProfile(id: string, updates: UserProfileUpdates): Promise<UserRecord | null>;
+  createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost>;
+  listCommunityPosts(limit?: number): Promise<CommunityPost[]>;
+  likeCommunityPost(postId: string): Promise<number | null>;
   listLibrary(userId: string, ageGroup: AgeGroup, languages: string[]): Promise<LibraryBook[]>;
   updateLibraryItem(
     userId: string,

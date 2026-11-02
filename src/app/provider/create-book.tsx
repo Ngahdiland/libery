@@ -1,6 +1,18 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../context/AuthContext';
@@ -19,11 +31,86 @@ export default function CreateProviderBookScreen() {
   const [ageRating, setAgeRating] = useState<AgeRating>('Adult');
   const [pages, setPages] = useState('');
   const [coverImageUrl, setCoverImageUrl] = useState('');
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const [coverUploadError, setCoverUploadError] = useState<string | null>(null);
+  const [showManualUrl, setShowManualUrl] = useState(false);
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const pickAndUploadCover = async () => {
+    setCoverUploadError(null);
+    setError(null);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setCoverUploadError('Permission to access photos is needed to select a book cover.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [2, 3],
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      const maxBytes = 5 * 1024 * 1024;
+      if (asset.fileSize && asset.fileSize > maxBytes) {
+        setCoverUploadError('Cover images must be 5 MB or smaller.');
+        return;
+      }
+
+      const uri = asset.uri;
+      const filename = asset.fileName || uri.split('/').pop() || 'cover.jpg';
+      const match = /\.(jpe?g|png|webp)$/i.exec(filename);
+      const mimeType = asset.mimeType ?? (match ? `image/${match[1].toLowerCase() === 'jpg' ? 'jpeg' : match[1].toLowerCase()}` : 'image/jpeg');
+
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+        setCoverUploadError('Cover must be a JPEG, PNG, or WebP image.');
+        return;
+      }
+
+      setIsUploadingCover(true);
+
+      const formData = new FormData();
+      if (Platform.OS === 'web') {
+        const res = await fetch(uri);
+        const blob = await res.blob();
+        if (blob.size > maxBytes) {
+          setCoverUploadError('Cover images must be 5 MB or smaller.');
+          setIsUploadingCover(false);
+          return;
+        }
+        formData.append('cover', blob, filename);
+      } else {
+        formData.append('cover', {
+          uri,
+          name: filename,
+          type: mimeType,
+        } as unknown as Blob);
+      }
+
+      const uploadResult = await request<{ coverImageUrl: string }>('/provider/covers', {
+        method: 'POST',
+        body: formData,
+      });
+
+      setCoverImageUrl(uploadResult.coverImageUrl);
+      setNotice('Cover image uploaded successfully.');
+    } catch (uploadError) {
+      setCoverUploadError(uploadError instanceof Error ? uploadError.message : 'Could not upload this cover image.');
+    } finally {
+      setIsUploadingCover(false);
+    }
+  };
 
   const createDraft = async () => {
     setError(null);
@@ -125,15 +212,71 @@ export default function CreateProviderBookScreen() {
             style={styles.input}
             value={pages}
           />
-          <TextInput
-            accessibilityLabel="Cover image URL"
-            autoCapitalize="none"
-            keyboardType="url"
-            onChangeText={setCoverImageUrl}
-            placeholder="Cover image HTTPS URL (optional)"
-            style={styles.input}
-            value={coverImageUrl}
-          />
+          <Text style={styles.fieldLabel}>Book cover</Text>
+          {coverImageUrl ? (
+            <View style={styles.coverPreviewContainer}>
+              <Image source={{ uri: coverImageUrl }} style={styles.coverPreview} resizeMode="cover" />
+              <View style={styles.coverPreviewActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isUploadingCover}
+                  onPress={() => void pickAndUploadCover()}
+                  style={styles.coverActionButton}
+                >
+                  <Ionicons name="image-outline" size={16} color={palette.primaryDark} />
+                  <Text style={styles.coverActionText}>Replace cover</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isUploadingCover}
+                  onPress={() => setCoverImageUrl('')}
+                  style={[styles.coverActionButton, styles.coverRemoveButton]}
+                >
+                  <Ionicons name="trash-outline" size={16} color="#A9342B" />
+                  <Text style={styles.coverRemoveText}>Remove</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.uploadBox}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Upload cover image"
+                disabled={isUploadingCover}
+                onPress={() => void pickAndUploadCover()}
+                style={styles.uploadButton}
+              >
+                {isUploadingCover ? (
+                  <View style={styles.uploadingRow}>
+                    <ActivityIndicator size="small" color={palette.primary} />
+                    <Text style={styles.uploadingText}>Uploading cover…</Text>
+                  </View>
+                ) : (
+                  <View style={styles.uploadingRow}>
+                    <Ionicons name="cloud-upload-outline" size={20} color={palette.primaryDark} />
+                    <Text style={styles.uploadButtonText}>Choose cover image</Text>
+                  </View>
+                )}
+              </Pressable>
+              <Text style={styles.uploadHint}>JPEG, PNG, or WebP up to 5 MB (2:3 aspect ratio)</Text>
+              {!showManualUrl ? (
+                <Pressable onPress={() => setShowManualUrl(true)} style={styles.toggleUrlButton}>
+                  <Text style={styles.toggleUrlText}>Or enter a cover URL</Text>
+                </Pressable>
+              ) : (
+                <TextInput
+                  accessibilityLabel="Cover image URL"
+                  autoCapitalize="none"
+                  keyboardType="url"
+                  onChangeText={setCoverImageUrl}
+                  placeholder="Cover image HTTPS URL"
+                  style={[styles.input, styles.urlInput]}
+                  value={coverImageUrl}
+                />
+              )}
+            </View>
+          )}
+          {coverUploadError && <Text accessibilityRole="alert" style={styles.error}>{coverUploadError}</Text>}
 
           <Text style={styles.fieldLabel}>Language</Text>
           <View style={styles.choiceRow}>
@@ -348,5 +491,113 @@ const styles = StyleSheet.create({
   actionLink: {
     color: palette.primary,
     fontWeight: '800',
+  },
+  coverPreviewContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F7F4',
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: '#E2EBE4',
+  },
+  coverPreview: {
+    width: 72,
+    height: 108,
+    borderRadius: radii.md,
+    backgroundColor: '#E8EFEA',
+  },
+  coverPreviewActions: {
+    flex: 1,
+    marginLeft: spacing.md,
+    justifyContent: 'center',
+  },
+  coverActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: '#fff',
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#D4E2D8',
+    marginBottom: spacing.xs,
+  },
+  coverActionText: {
+    color: palette.primaryDark,
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: spacing.xs,
+  },
+  coverRemoveButton: {
+    borderColor: '#F2D6D3',
+    backgroundColor: '#FDF7F7',
+  },
+  coverRemoveText: {
+    color: '#A9342B',
+    fontSize: 13,
+    fontWeight: '700',
+    marginLeft: spacing.xs,
+  },
+  uploadBox: {
+    backgroundColor: '#F3F7F4',
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#C3D7CA',
+    padding: spacing.md,
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  uploadButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: palette.primary,
+    borderRadius: radii.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    maxWidth: 280,
+  },
+  uploadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadButtonText: {
+    color: palette.primaryDark,
+    fontWeight: '700',
+    fontSize: 14,
+    marginLeft: spacing.xs,
+  },
+  uploadingText: {
+    color: palette.primary,
+    fontWeight: '600',
+    fontSize: 13,
+    marginLeft: spacing.xs,
+  },
+  uploadHint: {
+    color: palette.muted,
+    fontSize: 12,
+    marginTop: spacing.xs,
+    textAlign: 'center',
+  },
+  toggleUrlButton: {
+    marginTop: spacing.sm,
+    paddingVertical: 4,
+  },
+  toggleUrlText: {
+    color: palette.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  urlInput: {
+    width: '100%',
+    marginTop: spacing.sm,
+    marginBottom: 0,
+    backgroundColor: '#fff',
   },
 });

@@ -19,6 +19,15 @@ type RegistrationInput = {
   providerName?: string;
 };
 
+export type ProfileUpdates = {
+  displayName?: string;
+  bio?: string;
+  avatarUrl?: string;
+  ageGroup?: ApiUser['ageGroup'];
+  focusAreas?: string[];
+  languages?: string[];
+};
+
 type AuthContextValue = {
   accessToken: string | null;
   user: ApiUser | null;
@@ -30,6 +39,9 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   request: <T>(path: string, options?: RequestInit) => Promise<T>;
   setUser: (user: ApiUser) => void;
+  updateProfile: (updates: ProfileUpdates) => Promise<ApiUser>;
+  uploadAvatar: (uri: string, mimeType?: string, fileName?: string) => Promise<{ avatarUrl: string; user: ApiUser }>;
+  removeAvatar: () => Promise<ApiUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -191,6 +203,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearError = useCallback(() => setError(null), []);
 
+  const updateProfile = useCallback(async (updates: ProfileUpdates): Promise<ApiUser> => {
+    const response = await request<{ user: ApiUser }>('/me/profile', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    setUser(response.user);
+    return response.user;
+  }, [request]);
+
+  const uploadAvatar = useCallback(async (uri: string, mimeType = 'image/jpeg', fileName = 'avatar.jpg'): Promise<{ avatarUrl: string; user: ApiUser }> => {
+    const formData = new FormData();
+    if (Platform.OS === 'web') {
+      const res = await fetch(uri);
+      const blob = await res.blob();
+      formData.append('avatar', blob, fileName);
+    } else {
+      formData.append('avatar', {
+        uri,
+        name: fileName,
+        type: mimeType,
+      } as unknown as Blob);
+    }
+
+    const response = await request<{ user: ApiUser; avatarUrl: string }>('/me/avatar', {
+      method: 'POST',
+      body: formData,
+    });
+    setUser(response.user);
+    return response;
+  }, [request]);
+
+  const removeAvatar = useCallback(async (): Promise<ApiUser> => {
+    const response = await request<{ user: ApiUser }>('/me/avatar', {
+      method: 'DELETE',
+    });
+    setUser(response.user);
+    return response.user;
+  }, [request]);
+
   const value = useMemo(() => ({
     accessToken,
     user,
@@ -202,7 +253,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
     request,
     setUser,
-  }), [accessToken, user, isReady, error, clearError, signIn, register, signOut, request]);
+    updateProfile,
+    uploadAvatar,
+    removeAvatar,
+  }), [accessToken, user, isReady, error, clearError, signIn, register, signOut, request, updateProfile, uploadAvatar, removeAvatar]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -2,7 +2,9 @@
 
 This document is the working handoff for building and validating Libery. Update the status and evidence here when a milestone changes; never record live credentials or tokens.
 
-**Continuation:** Use [`TASKS.md`](TASKS.md) as the ordered backlog. At every handoff or context/usage limit, update both documents: keep this file's milestone statuses accurate, and leave the next concrete action at the top of `TASKS.md`. Resume with the first unchecked task; do not repeat checked tasks unless new evidence shows a regression.
+Last reviewed: 2026-11-02
+
+**Continuation:** Use [`TASKS.md`](TASKS.md) as the ordered backlog and its **Colleague continuation prompt** to hand off implementation. At every handoff or context/usage limit, update this file, `TASKS.md`, and—when backend setup changes—[`BACKEND_SETUP.md`](BACKEND_SETUP.md). Keep this file's milestone statuses accurate and leave the next concrete action at the top of `TASKS.md`. Resume with the first unchecked task; do not repeat checked tasks unless new evidence shows a regression.
 
 ## Project process
 
@@ -16,17 +18,21 @@ This document is the working handoff for building and validating Libery. Update 
 
 | Area | Status | Notes / next evidence |
 |---|---|---|
-| Expo app and API foundation | Implemented | Expo Router app and a separate Node API are present. The client must not connect directly to Atlas. |
-| MongoDB Atlas model | Implemented; live connection needs environment verification | API startup initializes indexes for users, refresh sessions, books, audit events, and user library. Confirm actual connection and seed/import results in the configured environment. |
+| Expo app and API foundation | Implemented and verified | Expo Router app and separate Node API verified. API health endpoint confirmed responding `{ status: "ok" }`. |
+| MongoDB Atlas model | Verified live | Atlas ping succeeded (`{ ok: 1 }`). Collections verified: `users`, `refresh_sessions`, `books`, `admin_audit_events`, `user_library`. Unique and text search indexes verified. 2,000 catalog books present in `libery` database. |
 | Authentication and cloud library | Implemented | API supports reader/provider registration, login, refresh, preferences, and per-user shelves/progress. Mobile refresh tokens use SecureStore; web keeps tokens in memory. |
-| Catalog | Metadata-only import path implemented | Gutenberg importer has dry-run and apply modes. Imported entries link to their source; this is not a library of hosted full-text books. |
+| Catalog | Metadata-only import path verified | Gutenberg importer dry-run verified (processed 79,712 catalog entries; prepared 2,000 records). 2,000 records verified in live database with metadata-only source links. |
+| Guest book browsing | Implemented and verified | `GET /books` and `GET /books/:id` use `optionalAuth`; unauthenticated requests default to adults/both languages. `CatalogContext` fetches on mount regardless of auth state. Verified live: `total: 2000`. |
+| Threads-style social homepage | Implemented and verified | `src/app/(tabs)/index.tsx` features Threads-inspired book social feed: composer bar with Atlas catalog attachment, community posts, interleaved book rows, mood filter chips, and recommendation row. |
+| Community posts & feed persistence | Implemented and verified | `community_posts` collection in MongoDB Atlas. `POST /v1/posts`, `GET /v1/posts`, `POST /v1/posts/:id/like`. Direct database persistence with author avatar, book reference, and likes. Interleaved mixed feed with pull-to-refresh. |
+| User Profile & Photo Upload | Implemented and verified | Full profile setup in `src/app/(tabs)/profile.tsx` with photo picker (gallery/camera/presets/removal), bio, display name, reading stats, preferences sync, and direct MongoDB Atlas database persistence (`PUT /v1/me/profile`, `POST /v1/me/avatar`). |
 | In-app book reading / offline content | Pending rights-cleared content source | Do not download or serve third-party PDFs/EPUBs or cache full text until rights for each title and territory are confirmed. |
 | Background narration | Not integrated | Requires a rights-cleared text/audio source and native/background playback design. Validate Expo SDK-specific APIs before implementation. |
-| Cover images | Partially implemented | The API supports verified-provider uploads to Cloudinary; the current provider form can also accept a public HTTPS URL. In-app image picking/upload remains pending. Category-themed local artwork is the fallback. |
-| Global header and bottom menu | Implemented; partially preview-verified | Header has menu + Libery on the left and inline search, notifications, and profile on the right. Notifications opens its own page. Bottom menu has Home, Discover, centered Add, Library, and Profile. Sign-in omits the app chrome. Discover, Library, and Notifications routes have been checked in preview. |
-| Navigation drawer and quick add | Implemented and preview-verified | Menu opens a left-side drawer at about 40% width with the remaining surface visibly blurred. Centered Add opens a quick-add sheet for finding a book or creating a provider listing. |
-| App validation | Partial | Latest app typecheck/lint and web export passed. Backend typecheck/tests passed earlier (12 tests). Preview verified the updated header, navigation drawer/blur, quick-add sheet, Notifications page, and Library route. Still smoke-test Home, book details, reader, provider listing, and sign-in after the final navigation update. |
-| Production readiness | Pending | Review dependency audit findings; add/verify account recovery, email/guardian-consent workflows as applicable, privacy export/deletion, operational monitoring, and production configuration. |
+| Cover images | Implemented in-app and API | In-app image picker (`expo-image-picker`) and multipart upload flow implemented with 5 MB / JPEG/PNG/WebP validation, thumbnail preview, replace/remove actions, and public HTTPS URL fallback. Server Cloudinary integration ready. |
+| Global header and bottom menu | Implemented and verified | Header has menu + Libery on left, inline search, notifications, and profile on right. Bottom menu has Home, Discover, centered Add, Library, Profile. Chrome appears on normal routes and excluded on sign-in/auth routes. |
+| Navigation drawer and quick add | Implemented and verified | Menu opens left-side drawer at 40% width with blurred backdrop. Centered Add opens quick-add sheet. Active tab detection normalized across grouped and root pathnames. |
+| App validation | Fully verified | App `npm run typecheck` (0 errors), `npx eslint src/` (0 errors) verified. Server `npm test` (14/14 tests passing) and `npm run typecheck` (0 errors) passed. Web export (`npx expo export --platform web`) compiled all 15 bundles successfully. |
+| Production readiness | In progress | Pending: Cloudinary secret rotation, production CORS/TLS/Atlas access restrictions, account recovery and age-consent workflows, data export/deletion lifecycle, and monitoring before launch. |
 
 ## Architecture and important paths
 

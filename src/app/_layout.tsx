@@ -12,6 +12,8 @@ import { ReadingLibraryProvider } from '../context/ReadingLibraryContext';
 import { BlurTargetContext } from '../context/BlurTargetContext';
 import { BottomNavigation } from '../components/BottomNavigation';
 import { LibraryHeaderActions } from '../components/LibraryHeaderActions';
+import { CommentsProvider } from '../context/CommentsContext';
+import { BookCommentSheet } from '../components/BookCommentSheet';
 import { palette } from '../theme';
 
 export default function RootLayout() {
@@ -23,11 +25,13 @@ export default function RootLayout() {
         <ReaderPreferencesProvider>
           <ReadingLibraryProvider>
             <CatalogProvider>
-              <BlurTargetContext.Provider value={blurTarget}>
-                <BlurTargetView ref={blurTarget} style={styles.appContent}>
-                  <AppNavigator />
-                </BlurTargetView>
-              </BlurTargetContext.Provider>
+              <CommentsProvider>
+                <BlurTargetContext.Provider value={blurTarget}>
+                  <BlurTargetView ref={blurTarget} style={styles.appContent}>
+                    <AppNavigator />
+                  </BlurTargetView>
+                </BlurTargetContext.Provider>
+              </CommentsProvider>
             </CatalogProvider>
           </ReadingLibraryProvider>
         </ReaderPreferencesProvider>
@@ -65,6 +69,7 @@ function AppNavigator() {
         <Stack screenOptions={{ headerShown: false }} />
       </View>
       {!isAuthOrSetupRoute && <BottomNavigation />}
+      <BookCommentSheet />
     </View>
   );
 }

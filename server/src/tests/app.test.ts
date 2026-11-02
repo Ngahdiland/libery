@@ -3,7 +3,7 @@ import request from 'supertest';
 
 import { createApp } from '../app.js';
 import type { AppConfig } from '../config.js';
-import type { AdminAuditEvent, AppStore, Book, LibraryBook, PublicBook, RefreshSession, UserPreferences, UserRecord, ProviderStatus } from '../types.js';
+import type { AdminAuditEvent, AppStore, Book, CommunityPost, CreateCommunityPostInput, LibraryBook, PublicBook, RefreshSession, UserPreferences, UserProfileUpdates, UserRecord, ProviderStatus } from '../types.js';
 import { selectCatalogRows, toCatalogBook } from '../import-gutenberg.js';
 
 class MemoryStore implements AppStore {
@@ -11,6 +11,7 @@ class MemoryStore implements AppStore {
   refreshSessions = new Map<string, RefreshSession>();
   books = new Map<string, Book>();
   library = new Map<string, LibraryBook>();
+  posts = new Map<string, CommunityPost>();
   auditEvents: AdminAuditEvent[] = [];
   private nextId = 1;
 
@@ -42,6 +43,65 @@ class MemoryStore implements AppStore {
     const updated = { ...user, ...preferences };
     this.users.set(id, updated);
     return updated;
+  }
+
+  async updateUserProfile(id: string, updates: UserProfileUpdates) {
+    const user = this.users.get(id);
+    if (!user) return null;
+    const updated = { ...user, ...updates };
+    this.users.set(id, updated);
+    return updated;
+  }
+
+  async createCommunityPost(input: CreateCommunityPostInput) {
+    const book = input.bookId ? this.books.get(input.bookId) : undefined;
+    const post: CommunityPost = {
+      id: this.makeId(),
+      userId: input.userId,
+      author: input.author,
+      content: input.content,
+      bookId: input.bookId,
+      book: book ? {
+        id: book.id,
+        title: book.title,
+        authors: book.authors,
+        provider: book.provider,
+        description: book.description,
+        categories: book.categories,
+        tags: book.tags,
+        language: book.language,
+        ageRating: book.ageRating,
+        coverImageUrl: book.coverImageUrl,
+        pages: book.pages,
+        ratingAvg: book.ratingAvg,
+        ratingCount: book.ratingCount,
+        access: book.access,
+        priceMinor: book.priceMinor,
+        currency: book.currency,
+        availability: book.availability,
+        sourceName: book.sourceName,
+        sourceId: book.sourceId,
+        sourceUrl: book.sourceUrl,
+      } : undefined,
+      likesCount: 0,
+      commentsCount: 0,
+      createdAt: new Date(),
+    };
+    this.posts.set(post.id, post);
+    return post;
+  }
+
+  async listCommunityPosts(limit = 20) {
+    return [...this.posts.values()]
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+  }
+
+  async likeCommunityPost(postId: string) {
+    const post = this.posts.get(postId);
+    if (!post) return null;
+    post.likesCount += 1;
+    return post.likesCount;
   }
 
   async listLibrary(userId: string, ageGroup: 'kids' | 'teens' | 'adults', languages: string[]) {
@@ -516,5 +576,96 @@ describe('Libery API', () => {
     expect(book.rightsConfirmed).toBe(false);
     expect(book.sourceUrl).toContain('gutenberg.org/ebooks/');
     expect(book.status).toBe('published');
+  });
+
+  it('updates reader profile and saves bio, display name, and avatar in the store', async () => {
+    const registerResponse = await request(app)
+      .post('/v1/auth/register')
+      .send({
+        email: 'profile_tester@example.com',
+        username: 'profile_tester',
+        displayName: 'Initial Name',
+        password: 'Password1234!',
+        ageGroup: 'adults',
+        focusAreas: ['Fiction'],
+        languages: ['English'],
+      })
+      .expect(201);
+
+    const token = registerResponse.body.accessToken;
+
+    const profileResponse = await request(app)
+      .put('/v1/me/profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        displayName: 'Updated Reader',
+        bio: 'Avid reader of 19th century literature and philosophy.',
+        avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb',
+      })
+      .expect(200);
+
+    expect(profileResponse.body.user.displayName).toBe('Updated Reader');
+    expect(profileResponse.body.user.bio).toBe('Avid reader of 19th century literature and philosophy.');
+    expect(profileResponse.body.user.avatarUrl).toBe('https://images.unsplash.com/photo-1534528741775-53994a69daeb');
+
+    // Verify GET /me returns the updated profile
+    const meResponse = await request(app)
+      .get('/v1/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(meResponse.body.user.displayName).toBe('Updated Reader');
+    expect(meResponse.body.user.bio).toBe('Avid reader of 19th century literature and philosophy.');
+    expect(meResponse.body.user.avatarUrl).toBe('https://images.unsplash.com/photo-1534528741775-53994a69daeb');
+  });
+
+  it('creates and lists community posts with book attachment and likes', async () => {
+    const registerResponse = await request(app)
+      .post('/v1/auth/register')
+      .send({
+        email: 'poster@example.com',
+        username: 'book_enthusiast',
+        displayName: 'Book Enthusiast',
+        password: 'Password1234!',
+        ageGroup: 'adults',
+        focusAreas: ['Fiction'],
+        languages: ['English'],
+      })
+      .expect(201);
+
+    const token = registerResponse.body.accessToken;
+
+    // Create a community post
+    const postResponse = await request(app)
+      .post('/v1/posts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        content: 'Reading this masterpiece on a quiet Sunday afternoon! Highly recommended.',
+      })
+      .expect(201);
+
+    expect(postResponse.body.post.content).toBe('Reading this masterpiece on a quiet Sunday afternoon! Highly recommended.');
+    expect(postResponse.body.post.author.username).toBe('book_enthusiast');
+    expect(postResponse.body.post.author.displayName).toBe('Book Enthusiast');
+    expect(postResponse.body.post.likesCount).toBe(0);
+
+    const postId = postResponse.body.post.id;
+
+    // Like the post
+    const likeResponse = await request(app)
+      .post(`/v1/posts/${postId}/like`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(likeResponse.body.likesCount).toBe(1);
+
+    // Guest can list posts
+    const listResponse = await request(app)
+      .get('/v1/posts')
+      .expect(200);
+
+    expect(listResponse.body.posts.length).toBeGreaterThanOrEqual(1);
+    expect(listResponse.body.posts[0].id).toBe(postId);
+    expect(listResponse.body.posts[0].likesCount).toBe(1);
   });
 });

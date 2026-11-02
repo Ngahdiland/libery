@@ -2,6 +2,8 @@
 
 The API is a separate Node.js service under `server/`; MongoDB is its database. The Expo app connects to this API for sign-in and the protected catalog. It must never connect directly to Atlas.
 
+**Handoff:** This file documents setup steps; it does not prove a live Atlas connection, a successful catalog import, or that Cloudinary is configured. Record verified outcomes in [`PROJECT_PROGRESS.md`](PROJECT_PROGRESS.md), and track remaining work in [`TASKS.md`](TASKS.md). Never copy secret values into those files.
+
 ## 1. Create a MongoDB database
 
 1. Sign in to [MongoDB Atlas](https://cloud.mongodb.com/) and create a project.
@@ -35,41 +37,49 @@ From the project root:
 
 ```powershell
 if (!(Test-Path server\.env)) { Copy-Item server\.env.example server\.env }
+if (!(Test-Path .env.local)) { Copy-Item .env.example .env.local }
 ```
 
-Edit `server\.env` and set `MONGODB_URI`, `MONGODB_DB`, `JWT_ACCESS_SECRET`, and `ADMIN_API_KEY` to your own values. Local `CORS_ORIGINS` may include the Expo web development origin; set `TRUST_PROXY_HOPS=0` when running directly on your machine.
+Edit `server\.env` and set `MONGODB_URI`, `MONGODB_DB`, `JWT_ACCESS_SECRET`, and `ADMIN_API_KEY` to your own values. `MONGODB_DB` defaults to `libery`; confirm it names the intended development database before running database commands. Use the generated JWT and admin secrets from step 2. Local `CORS_ORIGINS` may include the Expo web development origin; set `TRUST_PROXY_HOPS=0` when running directly on your machine.
 
 For provider book-cover uploads, configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` in `server\.env`. Get them from the Cloudinary Console **Dashboard** (cloud name) and **Settings → API Keys** (key and secret). The API secret must stay on the server and must never be added to `.env.local`, an `EXPO_PUBLIC_*` variable, source control, or a mobile build. If an API secret has been pasted into chat or otherwise exposed, rotate it in Cloudinary before use and enter the replacement directly into `server\.env`. The three settings are optional, but must be configured together; without them the API reports cover upload as unavailable.
 
-The Expo app must connect to the API—not directly to MongoDB Atlas. A database URI in a mobile bundle would expose the database credentials to every user. In the project root, copy `.env.example` to `.env.local` and set `EXPO_PUBLIC_API_URL` to the API origin, such as `http://localhost:4000` for a web preview, your computer's LAN address for a physical-device test, or the deployed API's HTTPS origin. `EXPO_PUBLIC_*` values are public app configuration; never put passwords or provider secrets there.
+In `.env.local`, set `EXPO_PUBLIC_API_URL` to the API origin, such as `http://localhost:4000` for a web preview, your computer's LAN address for a physical-device test, or the deployed API's HTTPS origin. The Expo app must connect to the API—not directly to MongoDB Atlas. A database URI in a mobile bundle would expose the database credentials to every user. `EXPO_PUBLIC_*` values are public app configuration; never put passwords or provider secrets there.
 
-Initialize the database collections and indexes after setting the URI:
-
-```powershell
-npm run db:init --prefix server
-```
-
-This creates the `users`, `refresh_sessions`, `books`, and `admin_audit_events` collections through their indexes. It does not insert catalog books; use the dry-run importer below, then `--apply` after reviewing the source and counts.
-
-Install dependencies and run the API:
+Install the API dependencies if they are not already installed, then initialize the database collections and indexes. This command makes a real connection to the configured MongoDB server, so check the intended environment and database name first:
 
 ```powershell
 npm install --prefix server
-npm run seed --prefix server
+npm run db:init --prefix server
+```
+
+The initializer connects to MongoDB and creates indexes for `users`, `refresh_sessions`, `books`, `admin_audit_events`, and `user_library`. It does not insert catalog books.
+
+Start the API in its own terminal:
+
+```powershell
 npm run dev --prefix server
 ```
 
-The sample seed inserts five fictional demo records only. For a larger catalog, see **Build a 1,000+ title catalog** below. The API listens at `http://localhost:4000`; check `GET /health`. The seed script is idempotent and only inserts missing sample titles.
+Check the API process at `http://localhost:4000/health` (for example, `Invoke-RestMethod http://localhost:4000/health`). This endpoint confirms the API responds; it does not, by itself, prove Atlas connectivity. The database initializer or a successful catalog query is needed to verify the configured MongoDB connection. In a separate terminal, start the Expo app with `npx expo start` after setting `.env.local`.
+
+The optional seed inserts five fictional demo records only and is idempotent. Run `npm run seed --prefix server` only when those sample records are wanted in the selected database. For the larger metadata catalog, use the dry-run importer below and inspect its output first. Do not pass `--apply` until the target database and import are confirmed.
 
 ## Build a 1,000+ title catalog
 
 **Recommended source: Project Gutenberg's official catalog feed for metadata, not automatic ebook redistribution.** Its weekly CSV contains tens of thousands of catalog records; Project Gutenberg says machine-readable catalog metadata is public domain and recommends using the feed rather than crawling its website. The importer selects up to 2,000 English/French text records across a range of subject categories and stores stable source IDs and links.
 
-The importer defaults to a **dry run**. Set a monitored contact address (used in the User-Agent), review the category/language counts, then apply:
+The importer defaults to a **dry run**. Set a monitored contact address (used in the User-Agent), review the category/language counts, then apply. On Windows running Node.js 22+, set `$env:NODE_OPTIONS = "--use-system-ca"` if your network requires system-installed root certificates for TLS:
 
 ```powershell
 $env:LIBERY_CATALOG_CONTACT = "you@example.org"
+$env:NODE_OPTIONS = "--use-system-ca" # Required on Windows Node 22+ if using system root CAs
 npm run import:gutenberg --prefix server -- --limit=2000
+```
+
+The command above is a dry run and does not connect to MongoDB or write any records. Review its prepared count, language/category breakdown, and source. Only after confirming the target database and desired import, run:
+
+```powershell
 npm run import:gutenberg --prefix server -- --limit=2000 --apply
 ```
 
@@ -177,6 +187,12 @@ The endpoint accepts JPEG, PNG, or WebP files up to 5 MB. Alternatively, a provi
 - `user_library`: private per-account reading shelves, favorites, and reading progress, indexed by user and book.
 
 Indexes are created on API startup. Only catalog records with `published` status are visible. The server applies age and language filtering independently of any client-side filter.
+
+### Verify the database target safely
+
+Before any database command, confirm the intended environment and `MONGODB_DB` value by inspecting the local configuration without printing `MONGODB_URI` or secret values. Run `npm run db:init --prefix server` only after confirming the target; a successful run confirms that the API host can connect and create indexes. Confirm the collection names in Atlas under the selected database. The API `GET /health` endpoint only confirms that the HTTP service responds; it is not an Atlas health check. Record the check date, database name (not its URI), created collections/indexes, and catalog count in `PROJECT_PROGRESS.md`.
+
+The catalog importer is metadata-only and defaults to a dry run. Review its output first. Treat `--apply` as a write to the configured MongoDB database: confirm the target and the intended import before using it, and record the result. The sample seed also writes demo books; run it only when those five fictional records are desired in that database.
 
 ## Security checks included
 
