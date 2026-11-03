@@ -14,6 +14,8 @@ import { BottomNavigation } from '../components/BottomNavigation';
 import { LibraryHeaderActions } from '../components/LibraryHeaderActions';
 import { CommentsProvider } from '../context/CommentsContext';
 import { BookCommentSheet } from '../components/BookCommentSheet';
+import { AudioPlayerProvider } from '../context/AudioPlayerContext';
+import { AudioPlayerBar } from '../components/AudioPlayerBar';
 import { palette } from '../theme';
 
 export default function RootLayout() {
@@ -26,11 +28,13 @@ export default function RootLayout() {
           <ReadingLibraryProvider>
             <CatalogProvider>
               <CommentsProvider>
-                <BlurTargetContext.Provider value={blurTarget}>
+                <AudioPlayerProvider>
+                  <BlurTargetContext.Provider value={blurTarget}>
                   <BlurTargetView ref={blurTarget} style={styles.appContent}>
                     <AppNavigator />
                   </BlurTargetView>
-                </BlurTargetContext.Provider>
+                  </BlurTargetContext.Provider>
+                </AudioPlayerProvider>
               </CommentsProvider>
             </CatalogProvider>
           </ReadingLibraryProvider>
@@ -69,6 +73,7 @@ function AppNavigator() {
         <Stack screenOptions={{ headerShown: false }} />
       </View>
       {!isAuthOrSetupRoute && <BottomNavigation />}
+      <AudioPlayerBar />
       <BookCommentSheet />
     </View>
   );

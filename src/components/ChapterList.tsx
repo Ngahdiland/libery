@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -38,18 +39,39 @@ export function ChapterList({
       setError(null);
     });
 
+    const cacheKey = `@libery_chapters_cache_${bookId}`;
+
     fetchBookChapters(bookId, accessToken || undefined)
       .then((data) => {
         if (active) {
           setChapters(data.chapters);
           setLoading(false);
+          void AsyncStorage.setItem(cacheKey, JSON.stringify(data.chapters));
         }
       })
       .catch((err: unknown) => {
-        if (active) {
-          setError(err instanceof Error ? err.message : 'Could not load chapter index.');
-          setLoading(false);
-        }
+        if (!active) return;
+        AsyncStorage.getItem(cacheKey)
+          .then((cached) => {
+            if (active && cached) {
+              try {
+                const parsed = JSON.parse(cached) as ApiChapterSummary[];
+                setChapters(parsed);
+                setLoading(false);
+                return;
+              } catch {}
+            }
+            if (active) {
+              setError(err instanceof Error ? err.message : 'Could not load chapter index.');
+              setLoading(false);
+            }
+          })
+          .catch(() => {
+            if (active) {
+              setError('Could not load chapter index.');
+              setLoading(false);
+            }
+          });
       });
 
     return () => {

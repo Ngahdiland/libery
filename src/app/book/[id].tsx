@@ -207,8 +207,23 @@ export default function BookDetailScreen() {
           </Pressable>
         </View>
 
-        {/* Secondary Action Row: Favorites & Chapters */}
+        {/* Secondary Action Row: Audio, Favorites & Chapters */}
         <View style={styles.secondaryActionsRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Listen to book chapter audio aloud"
+            onPress={() => {
+              router.push({
+                pathname: '/read/[id]',
+                params: { id: book.id, chapter: String(currentChapter), autoPlay: '1' },
+              });
+            }}
+            style={styles.secondaryButton}
+          >
+            <Ionicons name="headset-outline" size={18} color={palette.primary} />
+            <Text style={styles.secondaryButtonText}>Listen</Text>
+          </Pressable>
+
           <Pressable
             accessibilityRole="button"
             disabled={!isLibraryLoaded}
@@ -240,7 +255,7 @@ export default function BookDetailScreen() {
           >
             <Ionicons name="list-outline" size={18} color={palette.primary} />
             <Text style={styles.secondaryButtonText}>
-              {book.totalChapters ? `${book.totalChapters} Chapters` : 'Chapters'}
+              {book.totalChapters ? `${book.totalChapters} Ch.` : 'Chapters'}
             </Text>
           </Pressable>
         </View>

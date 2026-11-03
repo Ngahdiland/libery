@@ -20,6 +20,7 @@ import { useReaderPreferences, isBookAllowedForAge } from '../../context/ReaderP
 import { useReadingLibrary } from '../../context/ReadingLibraryContext';
 import { useCatalog } from '../../context/CatalogContext';
 import { useAuth } from '../../context/AuthContext';
+import { useAudioPlayer } from '../../context/AudioPlayerContext';
 import { ChapterList } from '../../components/ChapterList';
 import { toAppBook, type Book } from '../../data/books';
 import {
@@ -41,6 +42,8 @@ const THEMES: Record<ReaderTheme, {
   pillBg: string;
   pillText: string;
   secondaryText: string;
+  highlightBg: string;
+  highlightText: string;
 }> = {
   light: {
     bg: '#FAF8F5',
@@ -50,6 +53,8 @@ const THEMES: Record<ReaderTheme, {
     pillBg: '#EFF5F1',
     pillText: palette.primaryDark,
     secondaryText: '#627067',
+    highlightBg: '#DCF5E7',
+    highlightText: '#0E5C38',
   },
   sepia: {
     bg: '#F5EEDB',
@@ -59,6 +64,8 @@ const THEMES: Record<ReaderTheme, {
     pillBg: '#E9DCBE',
     pillText: '#59442C',
     secondaryText: '#7D6A53',
+    highlightBg: '#E2D3B3',
+    highlightText: '#3B2912',
   },
   dark: {
     bg: '#141718',
@@ -68,6 +75,8 @@ const THEMES: Record<ReaderTheme, {
     pillBg: '#252B2E',
     pillText: '#87D3A6',
     secondaryText: '#8E989E',
+    highlightBg: '#1B3F2E',
+    highlightText: '#A7F3D0',
   },
 };
 
@@ -76,11 +85,29 @@ const FONT_SIZE_STORAGE_KEY = '@libery_reader_fontsize';
 
 export default function ReaderScreen() {
   const router = useRouter();
-  const { id, chapter: chapterParam } = useLocalSearchParams<{ id: string; chapter?: string }>();
+  const { id, chapter: chapterParam, autoPlay } = useLocalSearchParams<{
+    id: string;
+    chapter?: string;
+    autoPlay?: string;
+  }>();
+
   const { preferences } = useReaderPreferences();
   const { books } = useCatalog();
   const { accessToken, isReady, request } = useAuth();
   const { isLoaded: isLibraryLoaded, saveItem } = useReadingLibrary();
+
+  const {
+    isPlaying,
+    isPaused,
+    currentBook: audioBook,
+    currentChapterNumber: audioChapterNumber,
+    sentences,
+    currentSentenceIndex,
+    playChapter,
+    pause,
+    resume,
+    setOnAdvanceChapter,
+  } = useAudioPlayer();
 
   const [fetchedBook, setFetchedBook] = useState<Book | null>(null);
   const [fetchFailure, setFetchFailure] = useState<{ id: string; error: string } | null>(null);
@@ -94,6 +121,7 @@ export default function ReaderScreen() {
   const [chapter, setChapter] = useState<ApiChapter | null>(null);
   const [loadingChapter, setLoadingChapter] = useState(true);
   const [chapterError, setChapterError] = useState<string | null>(null);
+  const [isOfflineCopy, setIsOfflineCopy] = useState(false);
 
   // Settings
   const [theme, setTheme] = useState<ReaderTheme>('sepia');
@@ -103,6 +131,10 @@ export default function ReaderScreen() {
 
   const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
   const scrollOffsetRef = useRef(0);
+
+  // Check if audio is currently narrating this exact book & chapter
+  const isAudioActive = isPlaying && audioBook?.id === id && audioChapterNumber === chapterNumber;
+  const isAudioPausedThisChapter = isPaused && audioBook?.id === id && audioChapterNumber === chapterNumber;
 
   // Load user reader preferences from AsyncStorage
   useEffect(() => {
@@ -151,20 +183,18 @@ export default function ReaderScreen() {
     };
   }, [accessToken, book, id, isReady, request]);
 
-  // Initial resume from saved progress if no chapter param was in the URL
+  // Initial resume from saved progress if no chapter param was passed in URL
   useEffect(() => {
     if (!id || chapterParam) return;
     let active = true;
 
-    // Check AsyncStorage first for instantaneous offline resume
+    // Check AsyncStorage first for instant offline resume
     AsyncStorage.getItem(`@libery_reading_progress_${id}`).then((local) => {
       if (active && local) {
         try {
           const parsed = JSON.parse(local);
           if (parsed.chapterNumber) setChapterNumber(parsed.chapterNumber);
-        } catch {
-          // Ignore parse errors
-        }
+        } catch {}
       }
     });
 
@@ -192,26 +222,65 @@ export default function ReaderScreen() {
       setChapterError(null);
     });
 
+    const cacheKey = `@libery_chapter_cache_${id}_${chapterNumber}`;
+
     fetchChapter(id, chapterNumber, accessToken || undefined)
       .then((data) => {
         if (active) {
           setChapter(data);
+          setIsOfflineCopy(false);
           setLoadingChapter(false);
-          // Scroll to top on chapter change
           scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+          void AsyncStorage.setItem(cacheKey, JSON.stringify(data));
         }
       })
       .catch((err: unknown) => {
-        if (active) {
-          setChapterError(err instanceof Error ? err.message : 'Could not load chapter content.');
-          setLoadingChapter(false);
-        }
+        if (!active) return;
+        AsyncStorage.getItem(cacheKey)
+          .then((cached) => {
+            if (active && cached) {
+              try {
+                const parsed = JSON.parse(cached) as ApiChapter;
+                setChapter(parsed);
+                setIsOfflineCopy(true);
+                setLoadingChapter(false);
+                scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+                return;
+              } catch {}
+            }
+            if (active) {
+              setChapterError(
+                err instanceof Error
+                  ? err.message
+                  : 'Could not load chapter content. Check your network connection.',
+              );
+              setLoadingChapter(false);
+            }
+          })
+          .catch(() => {
+            if (active) {
+              setChapterError('Could not load chapter content.');
+              setLoadingChapter(false);
+            }
+          });
       });
 
     return () => {
       active = false;
     };
   }, [id, chapterNumber, accessToken]);
+
+  // Auto-play audio if triggered with ?autoPlay=1
+  useEffect(() => {
+    if (autoPlay === '1' && book && chapter && !isPlaying) {
+      void playChapter(book, {
+        chapterNumber,
+        title: chapter.title,
+        text: chapter.text,
+        audioUrl: chapter.audioUrl,
+      });
+    }
+  }, [autoPlay, book, chapter, chapterNumber, isPlaying, playChapter]);
 
   // Auto-save reading position on chapter change and update library progress
   const saveProgressState = useCallback((targetChapter: number, textPos = 0) => {
@@ -222,15 +291,12 @@ export default function ReaderScreen() {
       audioPositionSeconds: 0,
     };
 
-    // Save locally
     void AsyncStorage.setItem(`@libery_reading_progress_${id}`, JSON.stringify(progressData));
 
-    // Save to server if logged in
     if (accessToken) {
       void saveReadingProgress(id, progressData, accessToken).catch(() => {});
     }
 
-    // Update library status & percentage
     if (book && isLibraryLoaded) {
       const total = book.totalChapters || 1;
       const isFinished = targetChapter >= total;
@@ -243,10 +309,17 @@ export default function ReaderScreen() {
     }
   }, [id, accessToken, book, isLibraryLoaded, saveItem]);
 
-  const goToChapter = (newChapterNum: number) => {
+  const goToChapter = useCallback((newChapterNum: number) => {
     setChapterNumber(newChapterNum);
     saveProgressState(newChapterNum, 0);
-  };
+  }, [saveProgressState]);
+
+  // Wire auto-advance for audio playback
+  useEffect(() => {
+    setOnAdvanceChapter((nextChap) => {
+      goToChapter(nextChap);
+    });
+  }, [setOnAdvanceChapter, goToChapter]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
@@ -285,6 +358,21 @@ export default function ReaderScreen() {
     );
   }
 
+  const toggleAudio = () => {
+    if (isAudioActive) {
+      void pause();
+    } else if (isAudioPausedThisChapter) {
+      void resume();
+    } else if (book && chapter) {
+      void playChapter(book, {
+        chapterNumber,
+        title: chapter.title,
+        text: chapter.text,
+        audioUrl: chapter.audioUrl,
+      });
+    }
+  };
+
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: currentTheme.bg }]}>
       {/* Top Navigation Bar */}
@@ -307,8 +395,24 @@ export default function ReaderScreen() {
           </Text>
         </View>
 
-        {/* Table of contents and Appearance toggles */}
+        {/* Audio, TOC, and Settings Toggles */}
         <View style={styles.headerRightActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isAudioActive ? 'Pause audio narration' : 'Listen to chapter aloud'}
+            onPress={toggleAudio}
+            style={[
+              styles.headerIconButton,
+              isAudioActive && { backgroundColor: currentTheme.highlightBg },
+            ]}
+          >
+            <Ionicons
+              name={isAudioActive ? 'volume-high' : 'headset-outline'}
+              size={20}
+              color={isAudioActive ? palette.primary : currentTheme.text}
+            />
+          </Pressable>
+
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open table of contents"
@@ -431,20 +535,78 @@ export default function ReaderScreen() {
             )}
           </View>
 
-          {/* Chapter Body Text */}
-          <Text
-            style={[
-              styles.bodyText,
-              {
-                color: currentTheme.text,
-                fontSize,
-                lineHeight: Math.round(fontSize * 1.68),
-              },
-            ]}
-            selectable
-          >
-            {chapter?.text}
-          </Text>
+          {/* Offline Cached Indicator */}
+          {isOfflineCopy && (
+            <View style={styles.offlineBanner}>
+              <Ionicons name="cloud-offline-outline" size={14} color="#D97706" />
+              <Text style={styles.offlineBannerText}>Reading offline saved copy</Text>
+            </View>
+          )}
+
+          {/* Chapter Body Text with Real-Time Spoken Sentence Highlighting */}
+          {isAudioActive && sentences.length > 0 ? (
+            <View style={styles.sentencesContainer}>
+              {sentences.map((sentence, idx) => {
+                const isCurrent = idx === currentSentenceIndex;
+                return (
+                  <Pressable
+                    key={idx}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sentence ${idx + 1}`}
+                    onPress={() => {
+                      if (book && chapter) {
+                        void playChapter(
+                          book,
+                          {
+                            chapterNumber,
+                            title: chapter.title,
+                            text: chapter.text,
+                            audioUrl: chapter.audioUrl,
+                          },
+                          idx,
+                        );
+                      }
+                    }}
+                    style={[
+                      styles.sentenceWrapper,
+                      isCurrent && {
+                        backgroundColor: currentTheme.highlightBg,
+                        borderRadius: 4,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.bodyText,
+                        {
+                          color: isCurrent ? currentTheme.highlightText : currentTheme.text,
+                          fontSize,
+                          lineHeight: Math.round(fontSize * 1.68),
+                          fontWeight: isCurrent ? '600' : '400',
+                        },
+                      ]}
+                    >
+                      {sentence}{' '}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.bodyText,
+                {
+                  color: currentTheme.text,
+                  fontSize,
+                  lineHeight: Math.round(fontSize * 1.68),
+                },
+              ]}
+              selectable
+            >
+              {chapter?.text}
+            </Text>
+          )}
 
           {/* End of Chapter Navigation Prompts */}
           <View style={[styles.endOfChapterNav, { borderTopColor: currentTheme.border }]}>
@@ -655,6 +817,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.06)',
   },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(217, 119, 6, 0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    marginBottom: spacing.lg,
+    alignSelf: 'flex-start',
+  },
+  offlineBannerText: {
+    color: '#D97706',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   chapterNumberEyebrow: {
     fontSize: 11,
     fontWeight: '800',
@@ -673,6 +851,13 @@ const styles = StyleSheet.create({
   },
   bodyText: {
     letterSpacing: 0.2,
+  },
+  sentencesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  sentenceWrapper: {
+    marginVertical: 1,
   },
   endOfChapterNav: {
     marginTop: spacing.xxl,
