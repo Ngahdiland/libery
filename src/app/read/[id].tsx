@@ -1,44 +1,136 @@
-import { Link, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Linking,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useReaderPreferences, isBookAllowedForAge } from '../../context/ReaderPreferences';
 import { useReadingLibrary } from '../../context/ReadingLibraryContext';
 import { useCatalog } from '../../context/CatalogContext';
 import { useAuth } from '../../context/AuthContext';
+import { ChapterList } from '../../components/ChapterList';
 import { toAppBook, type Book } from '../../data/books';
-import type { ApiBook } from '../../api/client';
+import {
+  fetchChapter,
+  fetchReadingProgress,
+  saveReadingProgress,
+  type ApiBook,
+  type ApiChapter,
+} from '../../api/client';
 import { palette, radii, spacing } from '../../theme';
 
-const samplePassages = [
-  'Every story begins somewhere unexpected. A door left open, a familiar street seen in a new light, or a question that has waited patiently for an answer.',
-  'By morning, the garden had changed. Rain shone on every leaf, and the path ahead seemed less like a map and more like an invitation.',
-  'We learn the shape of home from the people who make room for us. Sometimes that room is a whole house; sometimes it is only a chair beside the window.',
-  'The quiet work of beginning again rarely looks dramatic. It is a small promise kept, a page turned, a kind word offered when it would be easier to stay silent.',
-  'And so the next chapter opened—not because everything was certain, but because there was enough hope to take one more step.',
-];
+type ReaderTheme = 'light' | 'sepia' | 'dark';
 
-export default function SampleReaderScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+const THEMES: Record<ReaderTheme, {
+  bg: string;
+  text: string;
+  headerBg: string;
+  border: string;
+  pillBg: string;
+  pillText: string;
+  secondaryText: string;
+}> = {
+  light: {
+    bg: '#FAF8F5',
+    text: '#222B25',
+    headerBg: '#FFFFFF',
+    border: '#E8EFEA',
+    pillBg: '#EFF5F1',
+    pillText: palette.primaryDark,
+    secondaryText: '#627067',
+  },
+  sepia: {
+    bg: '#F5EEDB',
+    text: '#3D3023',
+    headerBg: '#ECE2CA',
+    border: '#E2D6BC',
+    pillBg: '#E9DCBE',
+    pillText: '#59442C',
+    secondaryText: '#7D6A53',
+  },
+  dark: {
+    bg: '#141718',
+    text: '#E1E5E7',
+    headerBg: '#1D2123',
+    border: '#2A3033',
+    pillBg: '#252B2E',
+    pillText: '#87D3A6',
+    secondaryText: '#8E989E',
+  },
+};
+
+const THEME_STORAGE_KEY = '@libery_reader_theme';
+const FONT_SIZE_STORAGE_KEY = '@libery_reader_fontsize';
+
+export default function ReaderScreen() {
+  const router = useRouter();
+  const { id, chapter: chapterParam } = useLocalSearchParams<{ id: string; chapter?: string }>();
   const { preferences } = useReaderPreferences();
   const { books } = useCatalog();
   const { accessToken, isReady, request } = useAuth();
-  const { getItem, isLoaded: isLibraryLoaded, saveItem } = useReadingLibrary();
+  const { isLoaded: isLibraryLoaded, saveItem } = useReadingLibrary();
+
   const [fetchedBook, setFetchedBook] = useState<Book | null>(null);
   const [fetchFailure, setFetchFailure] = useState<{ id: string; error: string } | null>(null);
-  const [fetchAttempt, setFetchAttempt] = useState(0);
+
   const book = books.find((item) => item.id === id)
     ?? (fetchedBook?.id === id ? fetchedBook : undefined);
-  const fetchError = fetchFailure?.id === id ? fetchFailure.error : null;
-  const isFetchingBook = Boolean(!book && isReady && accessToken && !fetchError);
-  const libraryItem = book ? getItem(book.id) : undefined;
-  const [selectedPage, setSelectedPage] = useState<{ id: string; page: number } | null>(null);
-  const storedPage = Math.max(1, Math.ceil((libraryItem?.progress ?? 0) / 20));
-  const page = selectedPage?.id === id ? selectedPage.page : isLibraryLoaded ? storedPage : 1;
-  const [fontSize, setFontSize] = useState(20);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
 
+  // Chapter state
+  const initialChapter = Number(chapterParam) || 1;
+  const [chapterNumber, setChapterNumber] = useState(initialChapter);
+  const [chapter, setChapter] = useState<ApiChapter | null>(null);
+  const [loadingChapter, setLoadingChapter] = useState(true);
+  const [chapterError, setChapterError] = useState<string | null>(null);
+
+  // Settings
+  const [theme, setTheme] = useState<ReaderTheme>('sepia');
+  const [fontSize, setFontSize] = useState(19);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showChapterModal, setShowChapterModal] = useState(false);
+
+  const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
+  const scrollOffsetRef = useRef(0);
+
+  // Load user reader preferences from AsyncStorage
+  useEffect(() => {
+    AsyncStorage.getItem(THEME_STORAGE_KEY).then((saved) => {
+      if (saved === 'light' || saved === 'sepia' || saved === 'dark') setTheme(saved);
+    });
+    AsyncStorage.getItem(FONT_SIZE_STORAGE_KEY).then((saved) => {
+      if (saved) {
+        const size = Number(saved);
+        if (size >= 14 && size <= 32) setFontSize(size);
+      }
+    });
+  }, []);
+
+  const changeTheme = (newTheme: ReaderTheme) => {
+    setTheme(newTheme);
+    void AsyncStorage.setItem(THEME_STORAGE_KEY, newTheme);
+  };
+
+  const changeFontSize = (delta: number) => {
+    setFontSize((prev) => {
+      const next = Math.max(14, Math.min(32, prev + delta));
+      void AsyncStorage.setItem(FONT_SIZE_STORAGE_KEY, String(next));
+      return next;
+    });
+  };
+
+  // Fetch book metadata if needed
   useEffect(() => {
     if (!id || book || !isReady || !accessToken) return;
     let active = true;
@@ -50,160 +142,409 @@ export default function SampleReaderScreen() {
         if (active) {
           setFetchFailure({
             id,
-            error: error instanceof Error ? error.message : 'Could not load this book.',
+            error: error instanceof Error ? error.message : 'Could not load book information.',
           });
         }
       });
     return () => {
       active = false;
     };
-  }, [accessToken, book, fetchAttempt, id, isReady, request]);
+  }, [accessToken, book, id, isReady, request]);
 
+  // Initial resume from saved progress if no chapter param was in the URL
   useEffect(() => {
-    if (!isLibraryLoaded || !book || book.availability === 'metadata_only'
-      || !isBookAllowedForAge(book.ageRating, preferences.ageGroup)) return;
-    const isFinished = libraryItem?.status === 'finished';
-    void saveItem(book, {
-      status: isFinished ? 'finished' : 'reading',
-      progress: isFinished ? 100 : Math.round((page / samplePassages.length) * 100),
-    })
-      .then(() => setLibraryError(null))
-      .catch((error: unknown) => setLibraryError(error instanceof Error ? error.message : 'Could not save reading progress.'));
-  }, [book, isLibraryLoaded, libraryItem?.status, page, preferences.ageGroup, saveItem]);
+    if (!id || chapterParam) return;
+    let active = true;
 
-  if (!book) {
+    // Check AsyncStorage first for instantaneous offline resume
+    AsyncStorage.getItem(`@libery_reading_progress_${id}`).then((local) => {
+      if (active && local) {
+        try {
+          const parsed = JSON.parse(local);
+          if (parsed.chapterNumber) setChapterNumber(parsed.chapterNumber);
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    });
+
+    // Sync from API if user is authenticated
+    if (accessToken) {
+      fetchReadingProgress(id, accessToken).then((prog) => {
+        if (active && prog && prog.chapterNumber) {
+          setChapterNumber(prog.chapterNumber);
+        }
+      }).catch(() => {});
+    }
+
+    return () => {
+      active = false;
+    };
+  }, [id, chapterParam, accessToken]);
+
+  // Fetch the current chapter text whenever book.id or chapterNumber changes
+  useEffect(() => {
+    if (!id) return;
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setLoadingChapter(true);
+      setChapterError(null);
+    });
+
+    fetchChapter(id, chapterNumber, accessToken || undefined)
+      .then((data) => {
+        if (active) {
+          setChapter(data);
+          setLoadingChapter(false);
+          // Scroll to top on chapter change
+          scrollViewRef.current?.scrollTo({ y: 0, animated: false });
+        }
+      })
+      .catch((err: unknown) => {
+        if (active) {
+          setChapterError(err instanceof Error ? err.message : 'Could not load chapter content.');
+          setLoadingChapter(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, chapterNumber, accessToken]);
+
+  // Auto-save reading position on chapter change and update library progress
+  const saveProgressState = useCallback((targetChapter: number, textPos = 0) => {
+    if (!id) return;
+    const progressData = {
+      chapterNumber: targetChapter,
+      textPosition: textPos,
+      audioPositionSeconds: 0,
+    };
+
+    // Save locally
+    void AsyncStorage.setItem(`@libery_reading_progress_${id}`, JSON.stringify(progressData));
+
+    // Save to server if logged in
+    if (accessToken) {
+      void saveReadingProgress(id, progressData, accessToken).catch(() => {});
+    }
+
+    // Update library status & percentage
+    if (book && isLibraryLoaded) {
+      const total = book.totalChapters || 1;
+      const isFinished = targetChapter >= total;
+      const progressPercent = Math.min(100, Math.round((targetChapter / total) * 100));
+
+      void saveItem(book, {
+        status: isFinished ? 'finished' : 'reading',
+        progress: progressPercent,
+      }).catch(() => {});
+    }
+  }, [id, accessToken, book, isLibraryLoaded, saveItem]);
+
+  const goToChapter = (newChapterNum: number) => {
+    setChapterNumber(newChapterNum);
+    saveProgressState(newChapterNum, 0);
+  };
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+  };
+
+  const currentTheme = THEMES[theme];
+  const totalChapters = book?.totalChapters || 1;
+  const canGoPrevious = chapterNumber > 1;
+  const canGoNext = chapterNumber < totalChapters;
+
+  if (book && !isBookAllowedForAge(book.ageRating, preferences.ageGroup)) {
     return (
-      <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
-        <View style={styles.restrictedState}>
-          <Text style={styles.readerTitle}>
-            {isFetchingBook || !isReady ? 'Loading book…' : fetchError ? 'Could not load book' : 'Book not found'}
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: currentTheme.bg }]}>
+        <View style={styles.centerContainer}>
+          <Ionicons name="lock-closed-outline" size={48} color={palette.muted} />
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>Age Restricted Content</Text>
+          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>
+            This title is restricted according to your profile age settings.
           </Text>
-          {fetchError && <Text accessibilityRole="alert" style={styles.sourceDescription}>{fetchError}</Text>}
-          {!isFetchingBook && !accessToken && isReady && (
-            <Link href="/sign-in" style={styles.backLink}>Sign in to load this book</Link>
-          )}
-          {fetchError && accessToken && (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setFetchFailure(null);
-                setFetchAttempt((attempt) => attempt + 1);
-              }}
-              style={styles.pageButton}
-            >
-              <Text style={styles.pageButtonText}>Try again</Text>
-            </Pressable>
-          )}
-          <Link href="/" style={styles.backLink}>Return to the library</Link>
+          <Link href={`/book/${id}`} style={styles.backButton}>Return to Book</Link>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!isBookAllowedForAge(book.ageRating, preferences.ageGroup)) {
+  if (!book && fetchFailure) {
     return (
-      <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
-        <View style={styles.restrictedState}>
-          <Text style={styles.readerTitle}>This sample isn’t available for your age group.</Text>
-          <Link href="/" style={styles.backLink}>Return to the library</Link>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (book.availability === 'metadata_only' && book.sourceUrl) {
-    return (
-      <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
-        <View style={styles.restrictedState}>
-          <Text style={styles.readerTitle}>This title is available from its source</Text>
-          <Text style={styles.sourceDescription}>
-            We have catalog information only. Worldwide reading and narration rights have not been verified, so Libery
-            does not copy or serve the book text.
-          </Text>
-          <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(book.sourceUrl!)} style={styles.pageButton}>
-            <Text style={styles.pageButtonText}>Open {book.provider}</Text>
-          </Pressable>
-          <Link href={`/book/${book.id}`} style={styles.backLink}>Back to book details</Link>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: currentTheme.bg }]}>
+        <View style={styles.centerContainer}>
+          <Ionicons name="alert-circle-outline" size={48} color="#A9342B" />
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>Could not open book</Text>
+          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>{fetchFailure.error}</Text>
+          <Link href="/" style={styles.backButton}>Return to Home</Link>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
-      <View style={styles.header}>
-        <Link href={`/book/${book.id}`} style={styles.backLink}>Book details</Link>
-        <Text style={styles.headerTitle} numberOfLines={1}>{book.title}</Text>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: currentTheme.bg }]}>
+      {/* Top Navigation Bar */}
+      <View style={[styles.header, { backgroundColor: currentTheme.headerBg, borderBottomColor: currentTheme.border }]}>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={libraryItem?.isFavorite ? 'Remove bookmark' : 'Add bookmark'}
-          accessibilityState={{ selected: Boolean(libraryItem?.isFavorite) }}
-          onPress={() => {
-            setLibraryError(null);
-            const isFinished = libraryItem?.status === 'finished';
-            void saveItem(book, {
-              status: isFinished ? 'finished' : 'reading',
-              progress: isFinished ? 100 : libraryItem?.progress ?? Math.round((page / samplePassages.length) * 100),
-              isFavorite: !libraryItem?.isFavorite,
-            })
-              .catch((error: unknown) => setLibraryError(error instanceof Error ? error.message : 'Could not update bookmark.'));
-          }}
-          style={styles.bookmarkButton}
+          accessibilityLabel="Back to book details"
+          onPress={() => router.push(`/book/${id}`)}
+          style={styles.headerIconButton}
         >
-          <Text style={styles.bookmarkIcon}>{libraryItem?.isFavorite ? '★' : '☆'}</Text>
+          <Ionicons name="chevron-back" size={24} color={currentTheme.text} />
+        </Pressable>
+
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerBookTitle, { color: currentTheme.text }]} numberOfLines={1}>
+            {book?.title || 'Libery Reader'}
+          </Text>
+          <Text style={[styles.headerChapterTitle, { color: currentTheme.secondaryText }]} numberOfLines={1}>
+            {chapter?.title ? chapter.title : `Chapter ${chapterNumber}`}
+          </Text>
+        </View>
+
+        {/* Table of contents and Appearance toggles */}
+        <View style={styles.headerRightActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open table of contents"
+            onPress={() => setShowChapterModal(true)}
+            style={styles.headerIconButton}
+          >
+            <Ionicons name="list" size={22} color={currentTheme.text} />
+          </Pressable>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Customize reader font and theme"
+            onPress={() => setShowSettings((prev) => !prev)}
+            style={[styles.headerIconButton, showSettings && { backgroundColor: currentTheme.pillBg }]}
+          >
+            <Ionicons name="text-outline" size={20} color={currentTheme.text} />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Reader Appearance & Font Settings Panel */}
+      {showSettings && (
+        <View style={[styles.settingsPanel, { backgroundColor: currentTheme.headerBg, borderBottomColor: currentTheme.border }]}>
+          {/* Theme selector */}
+          <View style={styles.settingsRow}>
+            <Text style={[styles.settingsLabel, { color: currentTheme.secondaryText }]}>Theme</Text>
+            <View style={styles.themeButtonGroup}>
+              {(['light', 'sepia', 'dark'] as ReaderTheme[]).map((t) => (
+                <Pressable
+                  key={t}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${t} theme`}
+                  onPress={() => changeTheme(t)}
+                  style={[
+                    styles.themeButton,
+                    { backgroundColor: THEMES[t].bg, borderColor: theme === t ? palette.primary : THEMES[t].border },
+                    theme === t && styles.themeButtonActive,
+                  ]}
+                >
+                  <Text style={[styles.themeButtonText, { color: THEMES[t].text }]}>
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          {/* Font Size controls */}
+          <View style={styles.settingsRow}>
+            <Text style={[styles.settingsLabel, { color: currentTheme.secondaryText }]}>Font Size</Text>
+            <View style={styles.fontControlsRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Decrease font size"
+                disabled={fontSize <= 14}
+                onPress={() => changeFontSize(-2)}
+                style={[styles.fontChangeButton, { backgroundColor: currentTheme.pillBg }]}
+              >
+                <Text style={[styles.fontChangeButtonText, { color: currentTheme.text }]}>A−</Text>
+              </Pressable>
+              <Text style={[styles.fontSizeDisplay, { color: currentTheme.text }]}>{fontSize}px</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Increase font size"
+                disabled={fontSize >= 32}
+                onPress={() => changeFontSize(2)}
+                style={[styles.fontChangeButton, { backgroundColor: currentTheme.pillBg }]}
+              >
+                <Text style={[styles.fontChangeButtonText, { color: currentTheme.text }]}>A+</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Main Chapter Content */}
+      {loadingChapter ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={palette.primary} />
+          <Text style={[styles.loadingText, { color: currentTheme.secondaryText }]}>
+            Loading Chapter {chapterNumber}…
+          </Text>
+        </View>
+      ) : chapterError ? (
+        <View style={styles.centerContainer}>
+          <Ionicons name="document-text-outline" size={48} color={currentTheme.secondaryText} />
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>Chapter not loaded</Text>
+          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>{chapterError}</Text>
+          {book?.sourceUrl && (
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => void Linking.openURL(book.sourceUrl!)}
+              style={styles.actionPill}
+            >
+              <Text style={styles.actionPillText}>Read at Source ({book.sourceName || 'Gutenberg'})</Text>
+            </Pressable>
+          )}
+        </View>
+      ) : (
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          onScroll={handleScroll}
+          scrollEventThrottle={100}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Chapter Heading Banner */}
+          <View style={styles.chapterHeaderBox}>
+            <Text style={[styles.chapterNumberEyebrow, { color: currentTheme.pillText }]}>
+              CHAPTER {chapterNumber} OF {totalChapters}
+            </Text>
+            <Text style={[styles.chapterMainTitle, { color: currentTheme.text }]}>
+              {chapter?.title}
+            </Text>
+            {Boolean(chapter?.wordCount) && (
+              <Text style={[styles.wordCountMeta, { color: currentTheme.secondaryText }]}>
+                {chapter?.wordCount.toLocaleString()} words · ~{Math.max(1, Math.round((chapter?.wordCount || 0) / 220))} min read
+              </Text>
+            )}
+          </View>
+
+          {/* Chapter Body Text */}
+          <Text
+            style={[
+              styles.bodyText,
+              {
+                color: currentTheme.text,
+                fontSize,
+                lineHeight: Math.round(fontSize * 1.68),
+              },
+            ]}
+            selectable
+          >
+            {chapter?.text}
+          </Text>
+
+          {/* End of Chapter Navigation Prompts */}
+          <View style={[styles.endOfChapterNav, { borderTopColor: currentTheme.border }]}>
+            <Text style={[styles.endOfChapterPrompt, { color: currentTheme.secondaryText }]}>
+              End of Chapter {chapterNumber}
+            </Text>
+            <View style={styles.bottomNavRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Go to previous chapter"
+                disabled={!canGoPrevious}
+                onPress={() => goToChapter(chapterNumber - 1)}
+                style={[
+                  styles.navButton,
+                  { backgroundColor: currentTheme.headerBg, borderColor: currentTheme.border },
+                  !canGoPrevious && styles.navButtonDisabled,
+                ]}
+              >
+                <Ionicons name="arrow-back" size={16} color={canGoPrevious ? currentTheme.text : currentTheme.secondaryText} />
+                <Text style={[styles.navButtonText, { color: canGoPrevious ? currentTheme.text : currentTheme.secondaryText }]}>
+                  Previous
+                </Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={canGoNext ? 'Go to next chapter' : 'Finish reading book'}
+                onPress={() => {
+                  if (canGoNext) {
+                    goToChapter(chapterNumber + 1);
+                  } else {
+                    saveProgressState(totalChapters, 100);
+                    router.push(`/book/${id}`);
+                  }
+                }}
+                style={[styles.navButton, styles.navButtonPrimary]}
+              >
+                <Text style={styles.navButtonPrimaryText}>
+                  {canGoNext ? 'Next Chapter' : 'Complete Book'}
+                </Text>
+                <Ionicons name={canGoNext ? 'arrow-forward' : 'checkmark-done'} size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* Floating Bottom Quick Bar */}
+      <View style={[styles.bottomBar, { backgroundColor: currentTheme.headerBg, borderTopColor: currentTheme.border }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Previous chapter"
+          disabled={!canGoPrevious}
+          onPress={() => goToChapter(chapterNumber - 1)}
+          style={[styles.barButton, !canGoPrevious && { opacity: 0.3 }]}
+        >
+          <Ionicons name="play-skip-back" size={18} color={currentTheme.text} />
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open chapters table of contents"
+          onPress={() => setShowChapterModal(true)}
+          style={styles.barChapterPill}
+        >
+          <Text style={[styles.barChapterText, { color: currentTheme.text }]}>
+            Ch. {chapterNumber} / {totalChapters}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Next chapter"
+          disabled={!canGoNext}
+          onPress={() => goToChapter(chapterNumber + 1)}
+          style={[styles.barButton, !canGoNext && { opacity: 0.3 }]}
+        >
+          <Ionicons name="play-skip-forward" size={18} color={currentTheme.text} />
         </Pressable>
       </View>
 
-      {libraryError && <Text accessibilityRole="alert" style={styles.libraryError}>{libraryError}</Text>}
-      <ScrollView contentContainerStyle={styles.page}>
-        <Text style={styles.pageLabel}>SAMPLE · PAGE {page} OF {samplePassages.length}</Text>
-        <Text style={[styles.passage, { fontSize }]}>{samplePassages[page - 1]}</Text>
-        <Text style={[styles.passage, { fontSize }]}>
-          Take your time with these pages. Your place in this sample is kept while you explore the preview.
-        </Text>
-      </ScrollView>
-
-      <View style={styles.controls}>
-        <View style={styles.textControls}>
-          <Text style={styles.controlLabel}>Text size</Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Decrease text size"
-            disabled={fontSize <= 16}
-            onPress={() => setFontSize((size) => Math.max(16, size - 2))}
-            style={styles.fontButton}
-          >
-            <Text style={styles.fontButtonText}>A−</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Increase text size"
-            disabled={fontSize >= 28}
-            onPress={() => setFontSize((size) => Math.min(28, size + 2))}
-            style={styles.fontButton}
-          >
-            <Text style={styles.fontButtonText}>A+</Text>
-          </Pressable>
-        </View>
-        <View style={styles.navigationRow}>
-          <Pressable
-            accessibilityRole="button"
-            disabled={page === 1}
-            onPress={() => setSelectedPage({ id, page: Math.max(1, page - 1) })}
-            style={[styles.pageButton, page === 1 && styles.disabledButton]}
-          >
-            <Text style={styles.pageButtonText}>Previous</Text>
-          </Pressable>
-          <Text style={styles.pageCounter}>{page} / {samplePassages.length}</Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setSelectedPage({ id, page: Math.min(samplePassages.length, page + 1) })}
-            style={styles.pageButton}
-          >
-            <Text style={styles.pageButtonText}>{page === samplePassages.length ? 'Finish' : 'Next'}</Text>
-          </Pressable>
-        </View>
-      </View>
+      {/* Table of Contents Modal */}
+      <Modal
+        visible={showChapterModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowChapterModal(false)}
+      >
+        <SafeAreaView style={[styles.safeArea, { backgroundColor: '#FFFFFF' }]}>
+          <ChapterList
+            bookId={id!}
+            currentChapter={chapterNumber}
+            onClose={() => setShowChapterModal(false)}
+            onSelectChapter={(num) => {
+              setShowChapterModal(false);
+              goToChapter(num);
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -211,136 +552,229 @@ export default function SampleReaderScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#FBF8F1',
   },
   header: {
-    minHeight: 64,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#E8E3D8',
+    zIndex: 10,
   },
-  restrictedState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  readerTitle: {
-    color: palette.textLight,
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-  sourceDescription: {
-    color: palette.muted,
-    fontSize: 15,
-    lineHeight: 23,
-    textAlign: 'center',
-    marginBottom: spacing.lg,
-  },
-  libraryError: {
-    color: '#A9342B',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-  },
-  backLink: {
-    color: palette.primary,
-    fontWeight: '700',
-    marginRight: spacing.md,
-  },
-  headerTitle: {
-    flex: 1,
-    color: palette.textLight,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  bookmarkButton: {
-    width: 48,
-    height: 48,
+  headerIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bookmarkIcon: {
-    color: palette.primary,
-    fontSize: 26,
+  headerTitleContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.xs,
   },
-  page: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: 36,
-  },
-  pageLabel: {
-    color: palette.primary,
-    fontSize: 11,
+  headerBookTitle: {
+    fontSize: 14,
     fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: spacing.xl,
   },
-  passage: {
-    color: '#2A332D',
-    lineHeight: 34,
-    marginBottom: spacing.lg,
+  headerChapterTitle: {
+    fontSize: 12,
+    marginTop: 1,
   },
-  controls: {
-    width: '100%',
-    maxWidth: 720,
-    alignSelf: 'center',
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingsPanel: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E3D8',
+    borderBottomWidth: 1,
+    gap: 12,
   },
-  textControls: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    marginBottom: spacing.xs,
-  },
-  controlLabel: {
-    color: palette.muted,
-    fontSize: 12,
-    marginRight: 12,
-  },
-  fontButton: {
-    minWidth: 48,
-    minHeight: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radii.sm,
-    backgroundColor: '#EAF3EE',
-    marginLeft: 8,
-  },
-  fontButtonText: {
-    color: palette.primaryDark,
-    fontWeight: '700',
-  },
-  navigationRow: {
+  settingsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  pageButton: {
-    minWidth: 96,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: palette.primary,
-    borderRadius: radii.md,
+  settingsLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
-  disabledButton: {
-    opacity: 0.45,
+  themeButtonGroup: {
+    flexDirection: 'row',
+    gap: 8,
   },
-  pageButtonText: {
-    color: '#fff',
+  themeButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.sm,
+    borderWidth: 1.5,
+  },
+  themeButtonActive: {
+    borderColor: palette.primary,
+  },
+  themeButtonText: {
+    fontSize: 12,
     fontWeight: '700',
   },
-  pageCounter: {
-    color: palette.muted,
+  fontControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  fontChangeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fontChangeButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  fontSizeDisplay: {
+    fontSize: 14,
+    fontWeight: '700',
+    minWidth: 40,
+    textAlign: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: 80,
+  },
+  chapterHeaderBox: {
+    marginBottom: spacing.xl,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.06)',
+  },
+  chapterNumberEyebrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    marginBottom: 6,
+  },
+  chapterMainTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    lineHeight: 32,
+    marginBottom: 6,
+  },
+  wordCountMeta: {
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  bodyText: {
+    letterSpacing: 0.2,
+  },
+  endOfChapterNav: {
+    marginTop: spacing.xxl,
+    paddingTop: spacing.xl,
+    borderTopWidth: 1,
+    alignItems: 'center',
+  },
+  endOfChapterPrompt: {
+    fontSize: 13,
     fontWeight: '600',
+    marginBottom: spacing.md,
+  },
+  bottomNavRow: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  navButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  navButtonPrimary: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  navButtonDisabled: {
+    opacity: 0.4,
+  },
+  navButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  navButtonPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  bottomBar: {
+    minHeight: 52,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+  },
+  barButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  barChapterPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  barChapterText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  centerContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    marginTop: 8,
+  },
+  titleText: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  metaText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  actionPill: {
+    backgroundColor: palette.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radii.md,
+    marginTop: 8,
+  },
+  actionPillText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  backButton: {
+    color: palette.primary,
+    fontWeight: '700',
+    marginTop: 12,
   },
 });
