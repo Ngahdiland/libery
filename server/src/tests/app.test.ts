@@ -3,7 +3,7 @@ import request from 'supertest';
 
 import { createApp } from '../app.js';
 import type { AppConfig } from '../config.js';
-import type { AdminAuditEvent, AppStore, Book, CommunityPost, CreateCommunityPostInput, LibraryBook, PublicBook, RefreshSession, UserPreferences, UserProfileUpdates, UserRecord, ProviderStatus } from '../types.js';
+import type { AdminAuditEvent, AppStore, Book, Chapter, ChapterSummary, CommunityPost, CreateCommunityPostInput, LibraryBook, PublicBook, ReadingProgress, RefreshSession, UserPreferences, UserProfileUpdates, UserRecord, ProviderStatus } from '../types.js';
 import { selectCatalogRows, toCatalogBook } from '../import-gutenberg.js';
 
 class MemoryStore implements AppStore {
@@ -12,6 +12,8 @@ class MemoryStore implements AppStore {
   books = new Map<string, Book>();
   library = new Map<string, LibraryBook>();
   posts = new Map<string, CommunityPost>();
+  chapters = new Map<string, Chapter>(); // key: `${bookId}:${chapterNumber}`
+  progress = new Map<string, ReadingProgress>(); // key: `${userId}:${bookId}`
   auditEvents: AdminAuditEvent[] = [];
   private nextId = 1;
 
@@ -233,6 +235,36 @@ class MemoryStore implements AppStore {
   }) {
     return (await this.listBooks({ ...filter, limit: 1000 })).length;
   }
+
+  async listChapters(bookId: string): Promise<ChapterSummary[]> {
+    return [...this.chapters.values()]
+      .filter((c) => c.bookId === bookId)
+      .sort((a, b) => a.chapterNumber - b.chapterNumber)
+      .map(({ text: _text, ...summary }) => summary);
+  }
+
+  async getChapter(bookId: string, chapterNumber: number): Promise<Chapter | null> {
+    return this.chapters.get(`${bookId}:${chapterNumber}`) ?? null;
+  }
+
+  async upsertChapters(chapters: Omit<Chapter, 'id'>[]): Promise<void> {
+    for (const chapter of chapters) {
+      const key = `${chapter.bookId}:${chapter.chapterNumber}`;
+      const existing = this.chapters.get(key);
+      this.chapters.set(key, { ...chapter, id: existing?.id ?? this.makeId() });
+    }
+  }
+
+  async getReadingProgress(userId: string, bookId: string): Promise<ReadingProgress | null> {
+    return this.progress.get(`${userId}:${bookId}`) ?? null;
+  }
+
+  async saveReadingProgress(p: Omit<ReadingProgress, 'updatedAt'>): Promise<ReadingProgress> {
+    const saved: ReadingProgress = { ...p, updatedAt: new Date() };
+    this.progress.set(`${p.userId}:${p.bookId}`, saved);
+    return saved;
+  }
+
 
   async close() {}
 
@@ -667,5 +699,119 @@ describe('Libery API', () => {
     expect(listResponse.body.posts.length).toBeGreaterThanOrEqual(1);
     expect(listResponse.body.posts[0].id).toBe(postId);
     expect(listResponse.body.posts[0].likesCount).toBe(1);
+  });
+  it('manages book chapters and tracks reader reading progress', async () => {
+    const registerResponse = await request(app)
+      .post('/v1/auth/register')
+      .send({
+        email: 'chapter_reader@example.com',
+        username: 'chapter_reader',
+        displayName: 'Chapter Reader',
+        password: 'Password1234!',
+        ageGroup: 'adults',
+        focusAreas: ['Fiction'],
+        languages: ['English'],
+      })
+      .expect(201);
+
+    const token = registerResponse.body.accessToken;
+
+    // Create a published book
+    const book = await store.createBook({
+      providerId: 'provider_1',
+      title: 'Moby Dick',
+      authors: ['Herman Melville'],
+      author: 'Herman Melville',
+      provider: 'Project Gutenberg',
+      description: 'Call me Ishmael.',
+      categories: ['Fiction'],
+      tags: ['Whale', 'Adventure'],
+      language: 'English',
+      ageRating: 'Adult',
+      ratingAvg: 4.8,
+      ratingCount: 120,
+      access: 'free',
+      rightsConfirmed: true,
+      availability: 'in_app_text',
+      sourceName: 'Project Gutenberg',
+      sourceUrl: 'https://www.gutenberg.org/ebooks/2701',
+      license: 'Public Domain',
+      downloadUrl: 'https://www.gutenberg.org/ebooks/2701',
+      totalChapters: 2,
+      status: 'published',
+    });
+
+    // Upsert chapters
+    await store.upsertChapters([
+      {
+        bookId: book.id,
+        chapterNumber: 1,
+        title: 'Chapter 1: Loomings',
+        text: 'Call me Ishmael. Some years ago—never mind how long precisely...',
+        wordCount: 2150,
+      },
+      {
+        bookId: book.id,
+        chapterNumber: 2,
+        title: 'Chapter 2: The Carpet-Bag',
+        text: 'I stuffed a shirt or two into my old carpet-bag, tucked it under my arm...',
+        wordCount: 1840,
+      },
+    ]);
+
+    // GET /books/:id/chapters -> list of chapters without text
+    const chaptersResponse = await request(app)
+      .get(`/v1/books/${book.id}/chapters`)
+      .expect(200);
+
+    expect(chaptersResponse.body.totalChapters).toBe(2);
+    expect(chaptersResponse.body.chapters.length).toBe(2);
+    expect(chaptersResponse.body.chapters[0].chapterNumber).toBe(1);
+    expect(chaptersResponse.body.chapters[0].title).toBe('Chapter 1: Loomings');
+    expect(chaptersResponse.body.chapters[0].text).toBeUndefined();
+
+    // GET /books/:id/chapters/1 -> single chapter with text
+    const chapter1Response = await request(app)
+      .get(`/v1/books/${book.id}/chapters/1`)
+      .expect(200);
+
+    expect(chapter1Response.body.chapter.chapterNumber).toBe(1);
+    expect(chapter1Response.body.chapter.text).toContain('Call me Ishmael.');
+
+    // GET /books/:id/chapters/99 -> 404
+    await request(app)
+      .get(`/v1/books/${book.id}/chapters/99`)
+      .expect(404);
+
+    // Initial progress check
+    const initProgress = await request(app)
+      .get(`/v1/me/progress/${book.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(initProgress.body.progress).toBeNull();
+
+    // Save reading progress
+    const saveProgress = await request(app)
+      .put(`/v1/me/progress/${book.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        chapterNumber: 2,
+        textPosition: 540,
+        audioPositionSeconds: 78.5,
+      })
+      .expect(200);
+
+    expect(saveProgress.body.progress.chapterNumber).toBe(2);
+    expect(saveProgress.body.progress.textPosition).toBe(540);
+    expect(saveProgress.body.progress.audioPositionSeconds).toBe(78.5);
+
+    // Fetch updated reading progress
+    const fetchedProgress = await request(app)
+      .get(`/v1/me/progress/${book.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(fetchedProgress.body.progress.chapterNumber).toBe(2);
+    expect(fetchedProgress.body.progress.textPosition).toBe(540);
   });
 });

@@ -17,7 +17,7 @@ import {
   REFRESH_TOKEN_TTL_MS,
 } from '../security.js';
 import type { AppConfig } from '../config.js';
-import type { AppStore, Book, UserRecord } from '../types.js';
+import type { AppStore, Book, Chapter, ReadingProgress, UserRecord } from '../types.js';
 
 const emailSchema = z.string().email().max(254).transform((value) => value.trim().toLowerCase());
 const passwordSchema = z.string().min(12).max(128);
@@ -46,8 +46,6 @@ const coverImageUrlSchema = z.string().url().max(2048).refine((value) => {
   return url.protocol === 'https:'
     && !url.username
     && !url.password
-
-    
     && host !== 'localhost'
     && !host.endsWith('.local')
     && !/^(?:127\.|10\.|192\.168\.|169\.254\.)/.test(host)
@@ -596,6 +594,55 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
     if (!updated) throw new ApiError(404, 'BOOK_NOT_FOUND', 'Book was not found.');
     await auditAdminAction(store, decision === 'publish' ? 'book_published' : 'book_removed', id);
     response.json({ status: decision === 'publish' ? 'published' : 'removed' });
+  }));
+
+  // -- Reading progress ------------------------------------------------------
+
+  // GET /me/progress/:bookId � fetch saved chapter position for a book
+  router.get('/me/progress/:bookId', auth, asyncRoute(async (request, response) => {
+    const bookId = z.string().regex(/^[a-fA-F0-9]{24}$/).parse(request.params.bookId);
+    const progress = await store.getReadingProgress(request.user!.id, bookId);
+    response.json({ progress });
+  }));
+
+  // PUT /me/progress/:bookId � upsert chapter position for a book
+  const progressSchema = z.object({
+    chapterNumber: z.number().int().min(1),
+    textPosition: z.number().int().min(0),
+    audioPositionSeconds: z.number().min(0),
+  }).strict();
+
+  router.put('/me/progress/:bookId', auth, asyncRoute(async (request, response) => {
+    const bookId = z.string().regex(/^[a-fA-F0-9]{24}$/).parse(request.params.bookId);
+    const body = progressSchema.parse(request.body);
+    const progress = await store.saveReadingProgress({ userId: request.user!.id, bookId, ...body });
+    response.json({ progress });
+  }));
+
+  // -- Chapters --------------------------------------------------------------
+
+  // GET /books/:id/chapters � chapter index (no text) for chapter picker UI
+  router.get('/books/:id/chapters', maybeAuth, asyncRoute(async (request, response) => {
+    const bookId = z.string().regex(/^[a-fA-F0-9]{24}$/).parse(request.params.id);
+    const ageGroup = request.user?.ageGroup ?? 'adults';
+    const languages = request.user?.languages ?? ['English', 'French'];
+    const book = await store.findPublishedBook(bookId, ageGroup, languages);
+    if (!book) throw new ApiError(404, 'BOOK_NOT_FOUND', 'Book was not found.');
+    const chapters = await store.listChapters(bookId);
+    response.json({ chapters, totalChapters: chapters.length });
+  }));
+
+  // GET /books/:id/chapters/:n � one chapter with full text
+  router.get('/books/:id/chapters/:n', maybeAuth, asyncRoute(async (request, response) => {
+    const bookId = z.string().regex(/^[a-fA-F0-9]{24}$/).parse(request.params.id);
+    const chapterNumber = z.coerce.number().int().min(1).max(9999).parse(request.params.n);
+    const ageGroup = request.user?.ageGroup ?? 'adults';
+    const languages = request.user?.languages ?? ['English', 'French'];
+    const book = await store.findPublishedBook(bookId, ageGroup, languages);
+    if (!book) throw new ApiError(404, 'BOOK_NOT_FOUND', 'Book was not found.');
+    const chapter = await store.getChapter(bookId, chapterNumber);
+    if (!chapter) throw new ApiError(404, 'CHAPTER_NOT_FOUND', 'Chapter was not found.');
+    response.json({ chapter });
   }));
 
   return router;

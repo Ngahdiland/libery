@@ -13,7 +13,11 @@ export type Book = {
   coverColors: [string, string];
   coverImageUrl?: string;
   sourceUrl?: string;
-  availability?: 'metadata_only' | 'provider_file';
+  availability?: 'metadata_only' | 'provider_file' | 'in_app_text';
+  sourceName?: string;
+  license?: string;
+  downloadUrl?: string;
+  totalChapters?: number;
   progress?: number;
   readingTime?: string;
   tags?: string[];
@@ -127,5 +131,9 @@ export function toAppBook(book: import('../api/client').ApiBook): Book {
     ...(book.coverImageUrl ? { coverImageUrl: book.coverImageUrl } : {}),
     ...(book.sourceUrl ? { sourceUrl: book.sourceUrl } : {}),
     availability: book.availability,
+    ...(book.sourceName ? { sourceName: book.sourceName } : {}),
+    ...(book.license ? { license: book.license } : {}),
+    ...(book.downloadUrl ? { downloadUrl: book.downloadUrl } : {}),
+    ...(book.totalChapters !== undefined ? { totalChapters: book.totalChapters } : {}),
   };
 }

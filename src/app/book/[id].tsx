@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useReaderPreferences, isBookAllowedForAge } from '../../context/ReaderPreferences';
 import { BookCover } from '../../components/BookCover';
+import { Attribution } from '../../components/Attribution';
 import { useCatalog } from '../../context/CatalogContext';
 import { useReadingLibrary } from '../../context/ReadingLibraryContext';
 import { useAuth } from '../../context/AuthContext';
@@ -183,6 +184,8 @@ export default function BookDetailScreen() {
         <View style={styles.summaryBox}>
           <Text style={styles.summary}>{book.description}</Text>
         </View>
+
+        <Attribution book={book} />
 
         {book.pages > 0 && <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Pages</Text>

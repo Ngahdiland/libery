@@ -13,7 +13,7 @@ async function initializeDatabase() {
   await store.close();
 
   console.info(`MongoDB indexes initialized for database "${database}".`);
-  console.info('Collections: users, refresh_sessions, books, admin_audit_events, user_library.');
+  console.info('Collections: users, refresh_sessions, books, admin_audit_events, user_library, community_posts, chapters, reading_progress.');
 }
 
 initializeDatabase().catch((error: unknown) => {

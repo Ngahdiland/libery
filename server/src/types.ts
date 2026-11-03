@@ -29,6 +29,7 @@ export type Book = {
   providerId: string;
   title: string;
   authors: string[];
+  author?: string;
   provider: string;
   description: string;
   categories: string[];
@@ -36,6 +37,7 @@ export type Book = {
   language: string;
   ageRating: 'Kids' | 'Teen' | 'Adult';
   coverImageUrl?: string;
+  coverUrl?: string;
   pages?: number;
   ratingAvg: number;
   ratingCount: number;
@@ -43,10 +45,17 @@ export type Book = {
   priceMinor?: number;
   currency?: 'USD' | 'EUR' | 'XAF';
   rightsConfirmed: boolean;
-  availability: 'metadata_only' | 'provider_file';
+  availability: 'metadata_only' | 'provider_file' | 'in_app_text';
   sourceName?: string;
   sourceId?: string;
   sourceUrl?: string;
+  /** SPDX license identifier or human-readable license name, e.g. "Public Domain" */
+  license?: string;
+  /** Direct download URL for the source file (always the original source, never hosted by Libery) */
+  downloadUrl?: string;
+  /** Total number of chapters stored in the chapters collection */
+  totalChapters?: number;
+  createdAt?: Date;
   status: 'draft' | 'pending_review' | 'published' | 'removed';
 };
 
@@ -112,16 +121,54 @@ export type CreateCommunityPostInput = {
   bookId?: string;
 };
 
+/**
+ * A single chapter of a book stored in the `chapters` collection.
+ * Text is the full plain-text content of the chapter.
+ */
+export type Chapter = {
+  id: string;
+  bookId: string;
+  chapterNumber: number;
+  title: string;
+  text: string;
+  wordCount: number;
+  /** URL to a pre-generated audio file; falls back to device TTS when absent */
+  audioUrl?: string;
+};
+
+/** Chapter index entry — omits the full text, used for the chapter list UI */
+export type ChapterSummary = Omit<Chapter, 'text'>;
+
+/**
+ * Tracks a reader's position in a book, saved per user+book.
+ * chapterNumber is 1-based.
+ * textPosition is the character offset within the chapter text (for scroll restoration).
+ * audioPositionSeconds is the playback position in the audio player.
+ */
+export type ReadingProgress = {
+  userId: string;
+  bookId: string;
+  chapterNumber: number;
+  textPosition: number;
+  audioPositionSeconds: number;
+  updatedAt: Date;
+};
+
 export interface AppStore {
+  // ── Users ──────────────────────────────────────────────────────────────────
   findUserByEmail(email: string): Promise<UserRecord | null>;
   findUserByUsername(username: string): Promise<UserRecord | null>;
   findUserById(id: string): Promise<UserRecord | null>;
   createUser(input: Omit<UserRecord, 'id'>): Promise<UserRecord>;
   updateUserPreferences(id: string, preferences: UserPreferences): Promise<UserRecord | null>;
   updateUserProfile(id: string, updates: UserProfileUpdates): Promise<UserRecord | null>;
+
+  // ── Community posts ────────────────────────────────────────────────────────
   createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost>;
   listCommunityPosts(limit?: number): Promise<CommunityPost[]>;
   likeCommunityPost(postId: string): Promise<number | null>;
+
+  // ── Library ────────────────────────────────────────────────────────────────
   listLibrary(userId: string, ageGroup: AgeGroup, languages: string[]): Promise<LibraryBook[]>;
   updateLibraryItem(
     userId: string,
@@ -131,8 +178,12 @@ export interface AppStore {
     item: Pick<LibraryBook, 'status' | 'progress' | 'isFavorite'>,
   ): Promise<LibraryBook | null>;
   removeLibraryItem(userId: string, bookId: string): Promise<void>;
+
+  // ── Provider / admin ───────────────────────────────────────────────────────
   updateProviderStatus(id: string, status: ProviderStatus): Promise<UserRecord | null>;
   recordAdminAuditEvent(event: AdminAuditEvent): Promise<void>;
+
+  // ── Books ──────────────────────────────────────────────────────────────────
   createBook(book: Omit<Book, 'id'>): Promise<Book>;
   listProviderBooks(providerId: string): Promise<Book[]>;
   findPublishedBook(id: string, ageGroup: AgeGroup, languages: string[]): Promise<PublicBook | null>;
@@ -144,9 +195,6 @@ export interface AppStore {
     providerId?: string,
     expectedStatus?: Book['status'],
   ): Promise<boolean>;
-  saveRefreshSession(session: RefreshSession): Promise<void>;
-  consumeRefreshSession(tokenHash: string): Promise<RefreshSession | null>;
-  revokeRefreshSession(tokenHash: string): Promise<void>;
   listBooks(filter: {
     ageGroup: AgeGroup;
     languages: string[];
@@ -163,5 +211,23 @@ export interface AppStore {
     language?: string;
     query?: string;
   }): Promise<number>;
+
+  // ── Chapters ───────────────────────────────────────────────────────────────
+  /** Returns the chapter index (no text) for a book, ordered by chapterNumber. */
+  listChapters(bookId: string): Promise<ChapterSummary[]>;
+  /** Returns a single chapter with full text, or null if not found. */
+  getChapter(bookId: string, chapterNumber: number): Promise<Chapter | null>;
+  /** Upserts chapters in bulk; used by the ingestion script. */
+  upsertChapters(chapters: Omit<Chapter, 'id'>[]): Promise<void>;
+
+  // ── Reading progress ───────────────────────────────────────────────────────
+  getReadingProgress(userId: string, bookId: string): Promise<ReadingProgress | null>;
+  saveReadingProgress(progress: Omit<ReadingProgress, 'updatedAt'>): Promise<ReadingProgress>;
+
+  // ── Sessions ───────────────────────────────────────────────────────────────
+  saveRefreshSession(session: RefreshSession): Promise<void>;
+  consumeRefreshSession(tokenHash: string): Promise<RefreshSession | null>;
+  revokeRefreshSession(tokenHash: string): Promise<void>;
+
   close(): Promise<void>;
 }

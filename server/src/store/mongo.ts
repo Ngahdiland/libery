@@ -5,17 +5,22 @@ import type {
   AppStore,
   Book,
   AdminAuditEvent,
+  Chapter,
+  ChapterSummary,
   CommunityPost,
   CreateCommunityPostInput,
   LibraryBook,
   LibraryStatus,
   PublicBook,
+  ReadingProgress,
   RefreshSession,
   UserPreferences,
   UserProfileUpdates,
   UserRecord,
   ProviderStatus,
 } from '../types.js';
+
+// ── Document shapes (MongoDB internal) ──────────────────────────────────────
 
 type UserDocument = Omit<UserRecord, 'id'> & { _id: ObjectId };
 type RefreshDocument = RefreshSession & { _id?: ObjectId };
@@ -44,6 +49,30 @@ type PostDocument = {
   createdAt: Date;
 };
 
+/** Stored shape for a book chapter (text stored as-is, no chunking in the DB). */
+type ChapterDocument = {
+  _id: ObjectId;
+  bookId: string;
+  chapterNumber: number;
+  title: string;
+  text: string;
+  wordCount: number;
+  audioUrl?: string;
+};
+
+/** Stored shape for a user's reading position in a book. */
+type ProgressDocument = {
+  _id?: ObjectId;
+  userId: string;
+  bookId: string;
+  chapterNumber: number;
+  textPosition: number;
+  audioPositionSeconds: number;
+  updatedAt: Date;
+};
+
+// ── Mapper helpers ───────────────────────────────────────────────────────────
+
 function toUser(document: UserDocument): UserRecord {
   const { _id, ...user } = document;
   return { ...user, id: _id.toHexString() };
@@ -58,6 +87,23 @@ function toBook(document: BookDocument): Book {
   const { _id, ...book } = document;
   return { ...book, id: _id.toHexString() };
 }
+
+function toChapterSummary(document: ChapterDocument): ChapterSummary {
+  const { _id, text: _text, ...rest } = document;
+  return { ...rest, id: _id.toHexString() };
+}
+
+function toChapter(document: ChapterDocument): Chapter {
+  const { _id, ...rest } = document;
+  return { ...rest, id: _id.toHexString() };
+}
+
+function toProgress(document: ProgressDocument): ReadingProgress {
+  const { _id: _, ...rest } = document;
+  return rest;
+}
+
+// ── Book filter builder ──────────────────────────────────────────────────────
 
 function makeBookFilter(filter: {
   ageGroup: AgeGroup;
@@ -84,6 +130,8 @@ function makeBookFilter(filter: {
   return { $and: conditions };
 }
 
+// ── MongoStore ───────────────────────────────────────────────────────────────
+
 export class MongoStore implements AppStore {
   private constructor(
     private readonly client: MongoClient,
@@ -93,6 +141,8 @@ export class MongoStore implements AppStore {
     private readonly auditEvents: Collection<AuditDocument>,
     private readonly library: Collection<LibraryDocument>,
     private readonly posts: Collection<PostDocument>,
+    private readonly chapters: Collection<ChapterDocument>,
+    private readonly readingProgress: Collection<ProgressDocument>,
   ) {}
 
   static async connect(uri: string, dbName: string, isProduction = false) {
@@ -113,6 +163,8 @@ export class MongoStore implements AppStore {
       db.collection<AuditDocument>('admin_audit_events'),
       db.collection<LibraryDocument>('user_library'),
       db.collection<PostDocument>('community_posts'),
+      db.collection<ChapterDocument>('chapters'),
+      db.collection<ProgressDocument>('reading_progress'),
     );
     await store.ensureIndexes();
     return store;
@@ -120,15 +172,20 @@ export class MongoStore implements AppStore {
 
   private async ensureIndexes() {
     await Promise.all([
+      // Users
       this.users.createIndex({ email: 1 }, { unique: true, name: 'users_email_unique' }),
       this.users.createIndex({ username: 1 }, { unique: true, name: 'users_username_unique' }),
       this.users.createIndex({ role: 1, providerStatus: 1 }, { name: 'users_provider_status' }),
+      // Audit
       this.auditEvents.createIndex({ createdAt: -1 }, { name: 'admin_audit_created_at' }),
+      // Library
       this.library.createIndex({ userId: 1, bookId: 1 }, { unique: true, name: 'user_library_book_unique' }),
       this.library.createIndex({ userId: 1, updatedAt: -1 }, { name: 'user_library_updated_at' }),
+      // Refresh sessions
       this.refreshSessions.createIndex({ tokenHash: 1 }, { unique: true, name: 'refresh_token_unique' }),
       this.refreshSessions.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0, name: 'refresh_expiry_ttl' }),
       this.refreshSessions.createIndex({ userId: 1 }, { name: 'refresh_user_id' }),
+      // Books
       this.books.createIndex({ status: 1, ageRating: 1, language: 1, _id: -1 }, { name: 'books_catalog_filter' }),
       this.books.createIndex({ providerId: 1, _id: -1 }, { name: 'books_provider_id' }),
       this.books.createIndex({ providerId: 1, title: 1 }, { unique: true, name: 'books_provider_title_unique' }),
@@ -136,10 +193,23 @@ export class MongoStore implements AppStore {
         { title: 'text', authors: 'text', provider: 'text', categories: 'text', tags: 'text' },
         { name: 'books_catalog_search' },
       ),
+      // Community posts
       this.posts.createIndex({ createdAt: -1 }, { name: 'posts_created_at' }),
       this.posts.createIndex({ userId: 1, createdAt: -1 }, { name: 'posts_user_created' }),
+      // Chapters — compound index on bookId + chapterNumber (the primary query pattern)
+      this.chapters.createIndex(
+        { bookId: 1, chapterNumber: 1 },
+        { unique: true, name: 'chapters_book_chapter_unique' },
+      ),
+      // Reading progress — one record per user+book, quickly updated
+      this.readingProgress.createIndex(
+        { userId: 1, bookId: 1 },
+        { unique: true, name: 'progress_user_book_unique' },
+      ),
     ]);
   }
+
+  // ── Users ──────────────────────────────────────────────────────────────────
 
   async findUserByEmail(email: string) {
     const user = await this.users.findOne({ email });
@@ -182,6 +252,8 @@ export class MongoStore implements AppStore {
     );
     return result ? toUser(result) : null;
   }
+
+  // ── Community posts ────────────────────────────────────────────────────────
 
   async createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost> {
     const doc: Omit<PostDocument, '_id'> = {
@@ -245,6 +317,8 @@ export class MongoStore implements AppStore {
     return result ? result.likesCount : null;
   }
 
+  // ── Library ────────────────────────────────────────────────────────────────
+
   async listLibrary(userId: string, ageGroup: AgeGroup, languages: string[]) {
     const records = await this.library.find({ userId }).sort({ updatedAt: -1 }).toArray();
     const bookIds = records.flatMap((record) => ObjectId.isValid(record.bookId) ? [new ObjectId(record.bookId)] : []);
@@ -290,6 +364,8 @@ export class MongoStore implements AppStore {
     await this.library.deleteOne({ userId, bookId });
   }
 
+  // ── Provider / admin ───────────────────────────────────────────────────────
+
   async updateProviderStatus(id: string, status: ProviderStatus) {
     if (!ObjectId.isValid(id)) return null;
     const result = await this.users.findOneAndUpdate(
@@ -303,6 +379,8 @@ export class MongoStore implements AppStore {
   async recordAdminAuditEvent(event: AdminAuditEvent) {
     await this.auditEvents.insertOne(event);
   }
+
+  // ── Books ──────────────────────────────────────────────────────────────────
 
   async createBook(book: Omit<Book, 'id'>) {
     const document: BookDocument = { ...book, _id: new ObjectId() };
@@ -347,19 +425,6 @@ export class MongoStore implements AppStore {
     return result.modifiedCount === 1 || result.matchedCount === 1;
   }
 
-  async saveRefreshSession(session: RefreshSession) {
-    await this.refreshSessions.insertOne(session);
-  }
-
-  async consumeRefreshSession(tokenHash: string) {
-    const result = await this.refreshSessions.findOneAndDelete({ tokenHash, expiresAt: { $gt: new Date() } });
-    return result ?? null;
-  }
-
-  async revokeRefreshSession(tokenHash: string) {
-    await this.refreshSessions.deleteOne({ tokenHash });
-  }
-
   async listBooks(filter: {
     ageGroup: AgeGroup;
     languages: string[];
@@ -390,6 +455,92 @@ export class MongoStore implements AppStore {
     query?: string;
   }) {
     return this.books.countDocuments(makeBookFilter(filter));
+  }
+
+  // ── Chapters ───────────────────────────────────────────────────────────────
+
+  /**
+   * Returns the chapter index (without text) for a book, sorted by chapterNumber.
+   * Used to render the chapter list on the Book Details screen.
+   */
+  async listChapters(bookId: string): Promise<ChapterSummary[]> {
+    const docs = await this.chapters
+      .find({ bookId }, { projection: { text: 0 } })
+      .sort({ chapterNumber: 1 })
+      .toArray();
+    return docs.map(toChapterSummary);
+  }
+
+  /**
+   * Returns a single chapter with its full text.
+   * Returns null if the chapter does not exist.
+   */
+  async getChapter(bookId: string, chapterNumber: number): Promise<Chapter | null> {
+    const doc = await this.chapters.findOne({ bookId, chapterNumber });
+    return doc ? toChapter(doc) : null;
+  }
+
+  /**
+   * Bulk-upserts chapters from the ingestion pipeline.
+   * Uses `updateOne + upsert` keyed on (bookId, chapterNumber) so re-runs are safe.
+   */
+  async upsertChapters(chapters: Omit<Chapter, 'id'>[]): Promise<void> {
+    if (chapters.length === 0) return;
+    const ops = chapters.map((chapter) => ({
+      updateOne: {
+        filter: { bookId: chapter.bookId, chapterNumber: chapter.chapterNumber },
+        update: { $set: chapter, $setOnInsert: { _id: new ObjectId() } },
+        upsert: true,
+      },
+    }));
+    await this.chapters.bulkWrite(ops as any, { ordered: false });
+  }
+
+  // ── Reading progress ───────────────────────────────────────────────────────
+
+  /**
+   * Returns the saved reading position for a user+book pair, or null if none exists.
+   */
+  async getReadingProgress(userId: string, bookId: string): Promise<ReadingProgress | null> {
+    const doc = await this.readingProgress.findOne({ userId, bookId });
+    return doc ? toProgress(doc) : null;
+  }
+
+  /**
+   * Upserts the reading position for a user+book pair.
+   * Always updates updatedAt so the client can detect staleness.
+   */
+  async saveReadingProgress(progress: Omit<ReadingProgress, 'updatedAt'>): Promise<ReadingProgress> {
+    const updatedAt = new Date();
+    await this.readingProgress.updateOne(
+      { userId: progress.userId, bookId: progress.bookId },
+      {
+        $set: {
+          chapterNumber: progress.chapterNumber,
+          textPosition: progress.textPosition,
+          audioPositionSeconds: progress.audioPositionSeconds,
+          updatedAt,
+        },
+        $setOnInsert: { userId: progress.userId, bookId: progress.bookId },
+      },
+      { upsert: true },
+    );
+    return { ...progress, updatedAt };
+  }
+
+  // ── Sessions ───────────────────────────────────────────────────────────────
+
+  async saveRefreshSession(session: RefreshSession) {
+    await this.refreshSessions.insertOne(session);
+  }
+
+  async consumeRefreshSession(tokenHash: string) {
+    const result = await this.refreshSessions.findOneAndDelete({ tokenHash, expiresAt: { $gt: new Date() } });
+    return result ?? null;
+  }
+
+  async revokeRefreshSession(tokenHash: string) {
+    await this.refreshSessions.deleteOne({ tokenHash });
   }
 
   async close() {

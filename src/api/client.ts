@@ -5,6 +5,7 @@ export type ApiBook = {
   id: string;
   title: string;
   authors: string[];
+  author?: string;
   provider: string;
   description: string;
   categories: string[];
@@ -16,7 +17,31 @@ export type ApiBook = {
   coverImageUrl?: string;
   sourceName?: string;
   sourceUrl?: string;
-  availability: 'metadata_only' | 'provider_file';
+  license?: string;
+  downloadUrl?: string;
+  totalChapters?: number;
+  availability: 'metadata_only' | 'provider_file' | 'in_app_text';
+};
+
+export type ApiChapter = {
+  id: string;
+  bookId: string;
+  chapterNumber: number;
+  title: string;
+  text: string;
+  wordCount: number;
+  audioUrl?: string;
+};
+
+export type ApiChapterSummary = Omit<ApiChapter, 'text'>;
+
+export type ApiReadingProgress = {
+  userId: string;
+  bookId: string;
+  chapterNumber: number;
+  textPosition: number;
+  audioPositionSeconds: number;
+  updatedAt: string;
 };
 
 export type ApiCommunityPost = {
@@ -161,4 +186,30 @@ export async function likeCommunityPost(postId: string, accessToken?: string): P
     method: 'POST',
   }, accessToken);
   return res.likesCount;
+}
+
+export async function fetchBookChapters(bookId: string, accessToken?: string): Promise<{ chapters: ApiChapterSummary[]; totalChapters: number }> {
+  return apiRequest<{ chapters: ApiChapterSummary[]; totalChapters: number }>(`/books/${encodeURIComponent(bookId)}/chapters`, { method: 'GET' }, accessToken);
+}
+
+export async function fetchChapter(bookId: string, chapterNumber: number, accessToken?: string): Promise<ApiChapter> {
+  const res = await apiRequest<{ chapter: ApiChapter }>(`/books/${encodeURIComponent(bookId)}/chapters/${chapterNumber}`, { method: 'GET' }, accessToken);
+  return res.chapter;
+}
+
+export async function fetchReadingProgress(bookId: string, accessToken: string): Promise<ApiReadingProgress | null> {
+  const res = await apiRequest<{ progress: ApiReadingProgress | null }>(`/me/progress/${encodeURIComponent(bookId)}`, { method: 'GET' }, accessToken);
+  return res.progress;
+}
+
+export async function saveReadingProgress(
+  bookId: string,
+  progress: { chapterNumber: number; textPosition: number; audioPositionSeconds: number },
+  accessToken: string,
+): Promise<ApiReadingProgress> {
+  const res = await apiRequest<{ progress: ApiReadingProgress }>(`/me/progress/${encodeURIComponent(bookId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(progress),
+  }, accessToken);
+  return res.progress;
 }
