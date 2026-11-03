@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
 import React, {
   createContext,
@@ -11,6 +10,7 @@ import React, {
 } from 'react';
 
 import type { Book } from '../data/books';
+import { BackgroundAudioSession } from '../utils/backgroundAudio';
 import { SILENT_AUDIO_URI, splitTextIntoSentences } from '../utils/textToSpeech';
 
 export type SpeechVoice = {
@@ -75,8 +75,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
   const [hasAudioUrl, setHasAudioUrl] = useState(false);
   const [isAudioBarVisible, setIsAudioBarVisible] = useState(false);
 
-  // Background audio session keep-alive sound object from expo-av
-  const silentSoundRef = useRef<Audio.Sound | null>(null);
+  // Audio playback state
   const isPlayingRef = useRef(false);
   const sentencesRef = useRef<string[]>([]);
   const currentIndexRef = useRef(0);
@@ -141,43 +140,21 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
       }
     });
 
-    Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      staysActiveInBackground: true,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    }).catch(() => {});
+    void BackgroundAudioSession.initAudioMode();
 
     return () => {
       active = false;
-      if (silentSoundRef.current) {
-        void silentSoundRef.current.unloadAsync().catch(() => {});
-      }
+      BackgroundAudioSession.dispose();
     };
   }, []);
 
   // Background keep-alive helper
   const startBackgroundAudioSession = async () => {
-    try {
-      if (!silentSoundRef.current) {
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: SILENT_AUDIO_URI },
-          { isLooping: true, volume: 0.01, shouldPlay: true },
-        );
-        silentSoundRef.current = sound;
-      } else {
-        await silentSoundRef.current.playAsync();
-      }
-    } catch {}
+    await BackgroundAudioSession.startKeepAlive(SILENT_AUDIO_URI);
   };
 
   const stopBackgroundAudioSession = async () => {
-    try {
-      if (silentSoundRef.current) {
-        await silentSoundRef.current.stopAsync();
-      }
-    } catch {}
+    await BackgroundAudioSession.stopKeepAlive();
   };
 
   const stop = useCallback(async () => {
