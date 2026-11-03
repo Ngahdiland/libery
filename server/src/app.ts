@@ -13,16 +13,21 @@ export function createApp(store: AppStore, config: AppConfig) {
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxyHops);
   app.use(helmet());
+  const isDev = config.nodeEnv !== 'production';
   app.use(cors({
     origin(origin, callback) {
-      if (!origin || config.corsOrigins.includes(origin)) {
+      if (
+        !origin
+        || config.corsOrigins.includes(origin)
+        || (isDev && /^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?$/.test(origin))
+      ) {
         callback(null, true);
         return;
       }
       callback(new ApiError(403, 'ORIGIN_NOT_ALLOWED', 'This origin is not allowed.'));
     },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Admin-Key'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Admin-Key', 'Accept'],
     maxAge: 600,
   }));
   app.use(express.json({ limit: '64kb', strict: true }));

@@ -46,6 +46,8 @@ const coverImageUrlSchema = z.string().url().max(2048).refine((value) => {
   return url.protocol === 'https:'
     && !url.username
     && !url.password
+
+    
     && host !== 'localhost'
     && !host.endsWith('.local')
     && !/^(?:127\.|10\.|192\.168\.|169\.254\.)/.test(host)

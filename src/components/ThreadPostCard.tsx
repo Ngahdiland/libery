@@ -202,7 +202,7 @@ export function ThreadPostCard({ post, quote, book: propBook }: ThreadPostCardPr
                 <View style={styles.ratingRow}>
                   <Ionicons name="star" size={12} color="#F59E0B" />
                   <Text style={styles.ratingText}>{book.rating.toFixed(1)}</Text>
-                  {book.pages && (
+                  {Boolean(book.pages && book.pages > 0) && (
                     <>
                       <Text style={styles.ratingDot}>·</Text>
                       <Text style={styles.pagesText}>{book.pages} pages</Text>

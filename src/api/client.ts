@@ -1,3 +1,6 @@
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
 export type ApiBook = {
   id: string;
   title: string;
@@ -64,7 +67,26 @@ export class ApiRequestError extends Error {
 }
 
 export function getApiBaseUrl() {
-  return process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') ?? '';
+  const configured = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
+
+  // On web:
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return `${window.location.protocol}//${window.location.hostname}:4000`;
+    }
+    return configured || 'http://localhost:4000';
+  }
+
+  // On native mobile (Expo Go or emulator): automatically connect to dev server host IP
+  if (Platform.OS !== 'web') {
+    const hostUri = Constants.expoConfig?.hostUri;
+    if (hostUri) {
+      const host = hostUri.split(':')[0];
+      return `http://${host}:4000`;
+    }
+  }
+
+  return configured || 'http://localhost:4000';
 }
 
 export function getApiErrorMessage(payload: unknown, fallback: string) {

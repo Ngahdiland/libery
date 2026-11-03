@@ -1,6 +1,18 @@
 import { Link, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../context/AuthContext';
 import { useReaderPreferences } from '../context/ReaderPreferences';
@@ -19,6 +31,13 @@ export default function SignInScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+
+  const displayNameRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const usernameRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const providerNameRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const emailRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const passwordRef = useRef<React.ElementRef<typeof TextInput>>(null);
 
   const submit = async () => {
     setError(null);
@@ -54,111 +73,160 @@ export default function SignInScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Link href="/(tabs)/profile" style={styles.backLink}>Back to profile</Link>
-        <Text style={styles.eyebrow}>Your library, everywhere</Text>
-        <Text style={styles.title}>
-          {mode === 'sign-in' ? 'Sign in to Libery' : accountType === 'provider' ? 'Create your provider account' : 'Create your reader account'}
-        </Text>
-        <Text style={styles.description}>
-          Your account connects this app to your private Libery API and MongoDB Atlas catalog.
-        </Text>
+    <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={styles.safeArea}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 16 : 0}
+        style={styles.keyboardAvoid}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+          <ScrollView
+            contentContainerStyle={styles.content}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            <Link href="/(tabs)/profile" style={styles.backLink}>Back to profile</Link>
+            <Text style={styles.eyebrow}>Your library, everywhere</Text>
+            <Text style={styles.title}>
+              {mode === 'sign-in' ? 'Sign in to Libery' : accountType === 'provider' ? 'Create your provider account' : 'Create your reader account'}
+            </Text>
+            <Text style={styles.description}>
+              Your account connects this app to your private Libery API and MongoDB Atlas catalog.
+            </Text>
 
-        <View style={styles.form}>
-          {mode === 'register' && (
-            <>
-              <Text style={styles.fieldLabel}>Account type</Text>
-              <View style={styles.accountTypeRow}>
-                {(['reader', 'provider'] as const).map((value) => (
-                  <Pressable
-                    key={value}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: accountType === value }}
-                    onPress={() => setAccountType(value)}
-                    style={[styles.accountTypeButton, accountType === value && styles.accountTypeButtonSelected]}
-                  >
-                    <Text style={[styles.accountTypeText, accountType === value && styles.accountTypeTextSelected]}>
-                      {value === 'reader' ? 'Reader' : 'Provider'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <TextInput
-                accessibilityLabel="Display name"
-                autoCapitalize="words"
-                onChangeText={setDisplayName}
-                placeholder="Display name"
-                style={styles.input}
-                value={displayName}
-              />
-              <TextInput
-                accessibilityLabel="Username"
-                autoCapitalize="none"
-                onChangeText={setUsername}
-                placeholder="Username"
-                style={styles.input}
-                value={username}
-              />
-              {accountType === 'provider' && (
-                <TextInput
-                  accessibilityLabel="Provider organization"
-                  autoCapitalize="words"
-                  onChangeText={setProviderName}
-                  placeholder="Publisher or organization name"
-                  style={styles.input}
-                  value={providerName}
-                />
+            <View style={styles.form}>
+              {mode === 'register' && (
+                <>
+                  <Text style={styles.fieldLabel}>Account type</Text>
+                  <View style={styles.accountTypeRow}>
+                    {(['reader', 'provider'] as const).map((value) => (
+                      <Pressable
+                        key={value}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: accountType === value }}
+                        onPress={() => setAccountType(value)}
+                        style={[styles.accountTypeButton, accountType === value && styles.accountTypeButtonSelected]}
+                      >
+                        <Text style={[styles.accountTypeText, accountType === value && styles.accountTypeTextSelected]}>
+                          {value === 'reader' ? 'Reader' : 'Provider'}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <TextInput
+                    ref={displayNameRef}
+                    accessibilityLabel="Display name"
+                    autoCapitalize="words"
+                    returnKeyType="next"
+                    onSubmitEditing={() => usernameRef.current?.focus()}
+                    onFocus={() => setFocusedField('displayName')}
+                    onBlur={() => setFocusedField((curr) => curr === 'displayName' ? null : curr)}
+                    onChangeText={setDisplayName}
+                    placeholder="Display name"
+                    placeholderTextColor={palette.muted}
+                    style={[styles.input, focusedField === 'displayName' && styles.inputFocused]}
+                    value={displayName}
+                  />
+                  <TextInput
+                    ref={usernameRef}
+                    accessibilityLabel="Username"
+                    autoCapitalize="none"
+                    returnKeyType="next"
+                    onSubmitEditing={() => {
+                      if (accountType === 'provider') {
+                        providerNameRef.current?.focus();
+                      } else {
+                        emailRef.current?.focus();
+                      }
+                    }}
+                    onFocus={() => setFocusedField('username')}
+                    onBlur={() => setFocusedField((curr) => curr === 'username' ? null : curr)}
+                    onChangeText={setUsername}
+                    placeholder="Username"
+                    placeholderTextColor={palette.muted}
+                    style={[styles.input, focusedField === 'username' && styles.inputFocused]}
+                    value={username}
+                  />
+                  {accountType === 'provider' && (
+                    <TextInput
+                      ref={providerNameRef}
+                      accessibilityLabel="Provider organization"
+                      autoCapitalize="words"
+                      returnKeyType="next"
+                      onSubmitEditing={() => emailRef.current?.focus()}
+                      onFocus={() => setFocusedField('providerName')}
+                      onBlur={() => setFocusedField((curr) => curr === 'providerName' ? null : curr)}
+                      onChangeText={setProviderName}
+                      placeholder="Publisher or organization name"
+                      placeholderTextColor={palette.muted}
+                      style={[styles.input, focusedField === 'providerName' && styles.inputFocused]}
+                      value={providerName}
+                    />
+                  )}
+                </>
               )}
-            </>
-          )}
-          <TextInput
-            accessibilityLabel="Email"
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            onChangeText={setEmail}
-            placeholder="Email address"
-            style={styles.input}
-            value={email}
-          />
-          <TextInput
-            accessibilityLabel="Password"
-            autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
-            onChangeText={setPassword}
-            placeholder={mode === 'sign-in' ? 'Password' : 'Password (12+ characters)'}
-            secureTextEntry
-            style={styles.input}
-            value={password}
-          />
-          {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
-          <Pressable
-            accessibilityRole="button"
-            disabled={isSubmitting}
-            onPress={() => void submit()}
-            style={[styles.submitButton, isSubmitting && styles.disabled]}
-          >
-            <Text style={styles.submitText}>
-              {isSubmitting ? 'Connecting…' : mode === 'sign-in' ? 'Sign in' : 'Create account'}
+              <TextInput
+                ref={emailRef}
+                accessibilityLabel="Email"
+                autoCapitalize="none"
+                autoComplete="email"
+                keyboardType="email-address"
+                returnKeyType="next"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField((curr) => curr === 'email' ? null : curr)}
+                onChangeText={setEmail}
+                placeholder="Email address"
+                placeholderTextColor={palette.muted}
+                style={[styles.input, focusedField === 'email' && styles.inputFocused]}
+                value={email}
+              />
+              <TextInput
+                ref={passwordRef}
+                accessibilityLabel="Password"
+                autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'}
+                returnKeyType={mode === 'sign-in' ? 'go' : 'done'}
+                onSubmitEditing={() => void submit()}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField((curr) => curr === 'password' ? null : curr)}
+                onChangeText={setPassword}
+                placeholder={mode === 'sign-in' ? 'Password' : 'Password (12+ characters)'}
+                placeholderTextColor={palette.muted}
+                secureTextEntry
+                style={[styles.input, focusedField === 'password' && styles.inputFocused]}
+                value={password}
+              />
+              {error && <Text accessibilityRole="alert" style={styles.error}>{error}</Text>}
+              <Pressable
+                accessibilityRole="button"
+                disabled={isSubmitting}
+                onPress={() => void submit()}
+                style={[styles.submitButton, isSubmitting && styles.disabled]}
+              >
+                <Text style={styles.submitText}>
+                  {isSubmitting ? 'Connecting…' : mode === 'sign-in' ? 'Sign in' : 'Create account'}
+                </Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setError(null);
+                  setMode((current) => current === 'sign-in' ? 'register' : 'sign-in');
+                }}
+                style={styles.modeButton}
+              >
+                <Text style={styles.modeText}>
+                  {mode === 'sign-in' ? 'New to Libery? Create an account' : 'Already registered? Sign in'}
+                </Text>
+              </Pressable>
+            </View>
+            <Text style={styles.note}>
+              Keep database credentials on the API server. This app stores only its rotated session token securely on mobile.
             </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              setError(null);
-              setMode((current) => current === 'sign-in' ? 'register' : 'sign-in');
-            }}
-            style={styles.modeButton}
-          >
-            <Text style={styles.modeText}>
-              {mode === 'sign-in' ? 'New to Libery? Create an account' : 'Already registered? Sign in'}
-            </Text>
-          </Pressable>
-        </View>
-        <Text style={styles.note}>
-          Keep database credentials on the API server. This app stores only its rotated session token securely on mobile.
-        </Text>
-      </ScrollView>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -168,35 +236,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.surfaceLight,
   },
+  keyboardAvoid: {
+    flex: 1,
+  },
   content: {
+    flexGrow: 1,
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
     padding: spacing.lg,
     paddingTop: spacing.xl,
+    paddingBottom: spacing.xxl * 2,
   },
   backLink: {
     color: palette.primary,
     fontWeight: '700',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.md,
   },
   eyebrow: {
     color: palette.primary,
-    fontWeight: '800',
     fontSize: 12,
-    letterSpacing: 1.4,
+    fontWeight: '800',
+    letterSpacing: 1,
     textTransform: 'uppercase',
   },
   title: {
     color: palette.textLight,
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: '800',
-    marginTop: 8,
+    marginTop: 4,
+    lineHeight: 34,
   },
   description: {
     color: palette.muted,
-    fontSize: 15,
-    lineHeight: 22,
+    fontSize: 14,
+    lineHeight: 20,
     marginTop: 10,
     marginBottom: spacing.xl,
   },
@@ -204,6 +278,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: radii.xl,
     padding: spacing.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   fieldLabel: {
     color: palette.textLight,
@@ -237,11 +316,22 @@ const styles = StyleSheet.create({
     minHeight: 52,
     backgroundColor: '#F3F7F4',
     borderRadius: radii.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: '#E2EBE4',
     color: palette.textLight,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.sm,
+    fontSize: 15,
+  },
+  inputFocused: {
+    borderColor: palette.primary,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    shadowColor: palette.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   error: {
     color: '#A9342B',
@@ -263,6 +353,7 @@ const styles = StyleSheet.create({
   submitText: {
     color: '#fff',
     fontWeight: '800',
+    fontSize: 16,
   },
   modeButton: {
     minHeight: 48,
@@ -279,5 +370,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     marginTop: spacing.lg,
+    textAlign: 'center',
   },
 });
