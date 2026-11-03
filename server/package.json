@@ -11,7 +11,8 @@
     "test": "vitest run",
     "db:init": "tsx src/init-db.ts",
     "seed": "tsx src/seed.ts",
-    "import:gutenberg": "tsx src/import-gutenberg.ts"
+    "import:gutenberg": "tsx src/import-gutenberg.ts",
+    "ingest:chapters": "tsx src/ingest-chapters.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
