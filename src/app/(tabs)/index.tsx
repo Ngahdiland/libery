@@ -22,8 +22,9 @@ import { useAuth } from '../../context/AuthContext';
 import { useCatalog } from '../../context/CatalogContext';
 import { isBookAllowedForAge, useReaderPreferences } from '../../context/ReaderPreferences';
 import { useReadingLibrary } from '../../context/ReadingLibraryContext';
-import { literaryQuotes, type QuoteMood } from '../../data/quotes';
+import { type QuoteMood } from '../../data/quotes';
 import { palette, radii, spacing } from '../../theme';
+import { generatePersonalizedPostFeed } from '../../utils/postingAlgorithm';
 import { computeRecommendations } from '../../utils/recommendations';
 
 const moodFilters: ('All' | QuoteMood)[] = [
@@ -81,6 +82,7 @@ export default function HomeScreen() {
   const [userPosts, setUserPosts] = useState<ThreadPostData[]>([]);
   const [dbPosts, setDbPosts] = useState<ApiCommunityPost[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshSeed, setRefreshSeed] = useState(() => Math.floor(Date.now() / 1000) % 100000);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [composerText, setComposerText] = useState('');
   const [composerBookId, setComposerBookId] = useState<string>('');
@@ -100,6 +102,7 @@ export default function HomeScreen() {
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setRefreshSeed((prev) => prev + 1);
     await loadCommunityPosts();
     setIsRefreshing(false);
   };
@@ -120,8 +123,10 @@ export default function HomeScreen() {
       libraryItems,
       focusAreas: user?.focusAreas ?? preferences.focusAreas,
       selectedMood,
+      refreshSeed,
+      userId: user?.id,
     });
-  }, [availableBooks, libraryItems, preferences.focusAreas, selectedMood, user?.focusAreas]);
+  }, [availableBooks, libraryItems, preferences.focusAreas, refreshSeed, selectedMood, user?.focusAreas, user?.id]);
 
   // Identify active book in progress from user's reading shelf
   const activeReadingItem = useMemo(() => {
@@ -138,46 +143,20 @@ export default function HomeScreen() {
       .slice(0, 20);
   }, [availableBooks, selectedCategory]);
 
-  // Build the community Threads post feed pairing quotes, reflections and live Atlas books
+  // Build the personalized Threads post feed pairing curiosity-gap hooks, reflections and live books with inserted chapters
   const communityFeedPosts: ThreadPostData[] = useMemo(() => {
-    const postAuthors = [
-      { username: 'netflix_books', displayName: 'Netflix & Reads', avatarColor: '#E50914', timeAgo: '2h', captionPrefix: 'Their chemistry and tension is everything! 📖🔥 This chapter had me on the edge of my seat:' },
-      { username: 'elena_reads', displayName: 'Elena Rostova', avatarColor: '#8B5CF6', timeAgo: '4h', captionPrefix: 'Comfortable, but still deeply thought-provoking. Can’t stop highlighting passages:' },
-      { username: 'marcus_aurelius', displayName: 'Marcus Aurelius', avatarColor: '#2D6A4F', timeAgo: '7h', captionPrefix: 'A timeless reminder on focus, composure, and navigating turmoil:' },
-      { username: 'islandvib3z', displayName: 'Island Vibes 🌴', avatarColor: '#EC4899', timeAgo: '9h', captionPrefix: 'Weekend reading locked in! The opening paragraph alone is pure poetry:' },
-      { username: 'oscarwilde', displayName: 'Oscar Wilde', avatarColor: '#D97706', timeAgo: '1d', captionPrefix: 'Wit is the only defense against modern boredom. Reflecting on this gem:' },
-      { username: 'sophia_lit', displayName: 'Sophia Vance', avatarColor: '#3B82F6', timeAgo: '1d', captionPrefix: 'If you only pick up one book this month, let it be this masterwork:' },
-    ];
-
-    const quotesToUse = selectedMood === 'All'
-      ? literaryQuotes
-      : literaryQuotes.filter((q) => q.mood === selectedMood);
-
-    return quotesToUse.map((q, index) => {
-      const authorMeta = postAuthors[index % postAuthors.length];
-      const matchingBook = availableBooks.find((b) =>
-        b.title.toLowerCase().includes(q.bookTitle.toLowerCase()) ||
-        q.bookTitle.toLowerCase().includes(b.title.toLowerCase()),
-      ) ?? availableBooks[index % availableBooks.length];
-
-      return {
-        id: `post-${q.id}`,
-        user: {
-          username: authorMeta.username,
-          displayName: authorMeta.displayName,
-          avatarColor: authorMeta.avatarColor,
-          isVerified: true,
-        },
-        timeAgo: authorMeta.timeAgo,
-        content: `${authorMeta.captionPrefix}\n\n“${q.quote}”\n\n— ${q.author}`,
-        book: matchingBook,
-        likesCount: q.likesCount,
-        commentsCount: q.commentsCount,
-        repostsCount: Math.round(q.likesCount * 0.25),
-        sharesCount: Math.round(q.likesCount * 0.12),
-      };
+    return generatePersonalizedPostFeed({
+      allBooks: availableBooks,
+      userProfile: {
+        userId: user?.id,
+        focusAreas: user?.focusAreas ?? preferences.focusAreas,
+      },
+      libraryItems,
+      selectedMood,
+      refreshSeed,
+      limit: 15,
     });
-  }, [availableBooks, selectedMood]);
+  }, [availableBooks, libraryItems, preferences.focusAreas, refreshSeed, selectedMood, user?.focusAreas, user?.id]);
 
   // Build community posts fetched from the live MongoDB database
   const dbFeedPosts: ThreadPostData[] = useMemo(() => {

@@ -1,6 +1,7 @@
 import type { Book } from '../data/books';
 import type { LiteraryQuote } from '../data/quotes';
 import { literaryQuotes } from '../data/quotes';
+import { seededRandom } from './postingAlgorithm';
 
 type RecommendationInput = {
   allBooks: Book[];
@@ -12,6 +13,8 @@ type RecommendationInput = {
   }[];
   focusAreas?: string[];
   selectedMood?: string;
+  refreshSeed?: number;
+  userId?: string;
 };
 
 export type RecommendationResult = {
@@ -27,6 +30,8 @@ export function computeRecommendations({
   libraryItems,
   focusAreas = [],
   selectedMood,
+  refreshSeed = 1,
+  userId = 'default_reader',
 }: RecommendationInput): RecommendationResult {
   if (!allBooks || allBooks.length === 0) {
     return {
@@ -87,7 +92,7 @@ export function computeRecommendations({
     }
   }
 
-  // 2. Score every book in catalog
+  // 2. Score every book in catalog with interest weights + refresh seed jitter
   const scoredBooks = allBooks.map((book) => {
     let score = 0;
     const cat = book.category.toLowerCase();
@@ -119,6 +124,15 @@ export function computeRecommendations({
       score += Math.min(Math.log10(book.reviews + 1) * 3, 10);
     }
 
+    // High priority bonus for books with full chapters inserted
+    if (book.availability === 'in_app_text' || (book.totalChapters && book.totalChapters > 0)) {
+      score += 35;
+    }
+
+    // Refresh jitter based on user profile and refresh seed
+    const jitter = (seededRandom(refreshSeed, `rec_${userId}_${book.id}`) - 0.5) * 12;
+    score += jitter;
+
     return { book, score };
   });
 
@@ -127,34 +141,43 @@ export function computeRecommendations({
 
   const tailoredPicks = scoredBooks.slice(0, 10).map((s) => s.book);
 
-  // 3. Find related books to top category
+  // 3. Find related books to top category with randomized permutation on refresh
   let relatedBooks: Book[] = [];
   if (topLikedCategory) {
-    relatedBooks = allBooks
-      .filter((b) => b.category.toLowerCase() === topLikedCategory?.toLowerCase())
+    const candidates = allBooks.filter((b) => b.category.toLowerCase() === topLikedCategory?.toLowerCase());
+    relatedBooks = [...candidates]
+      .sort((a, b) => seededRandom(refreshSeed, `rel_${a.id}`) - seededRandom(refreshSeed, `rel_${b.id}`))
       .slice(0, 8);
   } else if (focusAreas.length > 0) {
     topLikedCategory = focusAreas[0];
-    relatedBooks = allBooks
-      .filter((b) => b.category.toLowerCase() === topLikedCategory?.toLowerCase())
+    const candidates = allBooks.filter((b) => b.category.toLowerCase() === topLikedCategory?.toLowerCase());
+    relatedBooks = [...candidates]
+      .sort((a, b) => seededRandom(refreshSeed, `rel_${a.id}`) - seededRandom(refreshSeed, `rel_${b.id}`))
       .slice(0, 8);
   } else if (allBooks.length > 0) {
     topLikedCategory = allBooks[0].category;
-    relatedBooks = allBooks.slice(0, 8);
+    relatedBooks = [...allBooks]
+      .sort((a, b) => seededRandom(refreshSeed, `rel_${a.id}`) - seededRandom(refreshSeed, `rel_${b.id}`))
+      .slice(0, 8);
   }
 
-  // 4. Select quotes matching selected mood or top user affinity
-  let moodQuotes = literaryQuotes;
+  // 4. Select quotes matching selected mood or top user affinity, randomized by seed
+  let pool = literaryQuotes;
   if (selectedMood && selectedMood !== 'All') {
-    moodQuotes = literaryQuotes.filter((q) => q.mood.toLowerCase() === selectedMood.toLowerCase());
+    pool = literaryQuotes.filter((q) => q.mood.toLowerCase() === selectedMood.toLowerCase());
   } else if (topLikedCategory) {
     const matching = literaryQuotes.filter(
       (q) => q.category.toLowerCase() === topLikedCategory?.toLowerCase(),
     );
     if (matching.length > 0) {
-      moodQuotes = [...matching, ...literaryQuotes.filter((q) => !matching.includes(q))];
+      pool = [...matching, ...literaryQuotes.filter((q) => !matching.includes(q))];
     }
   }
+
+  // Shuffle quotes with the refresh seed
+  const moodQuotes = [...pool].sort(
+    (a, b) => seededRandom(refreshSeed, `quote_${a.id}`) - seededRandom(refreshSeed, `quote_${b.id}`),
+  );
 
   return {
     tailoredPicks,

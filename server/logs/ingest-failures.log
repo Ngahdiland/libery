@@ -1,0 +1,102 @@
+[2026-11-04T21:45:59.072Z] Book #10 failed: TimeoutError: The operation was aborted due to timeout
+    at new DOMException (node:internal/per_context/domexception:76:18)
+    at Timeout._onTimeout (node:internal/abort_controller:154:9)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+[2026-11-04T21:48:16.075Z] Book #100 failed: TimeoutError: The operation was aborted due to timeout
+    at new DOMException (node:internal/per_context/domexception:76:18)
+    at Timeout._onTimeout (node:internal/abort_controller:154:9)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+[2026-11-04T21:55:11.668Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T22:12:14.009Z] Book #100 failed: TimeoutError: The operation was aborted due to timeout
+    at new DOMException (node:internal/per_context/domexception:76:18)
+    at Timeout._onTimeout (node:internal/abort_controller:154:9)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+[2026-11-04T22:16:19.447Z] Book #100 failed: TimeoutError: The operation was aborted due to timeout
+    at new DOMException (node:internal/per_context/domexception:76:18)
+    at Timeout._onTimeout (node:internal/abort_controller:154:9)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+[2026-11-04T22:20:35.271Z] Book #10 failed: MongoServerSelectionError: connection <monitor> to 35.233.89.109:27017 timed out
+    at Topology.selectServer (C:\404\real Projects\libery\server\node_modules\mongodb\src\sdam\topology.ts:635:30)
+    at async tryOperation (C:\404\real Projects\libery\server\node_modules\mongodb\src\operations\execute_operation.ts:266:16)
+    at async executeOperation (C:\404\real Projects\libery\server\node_modules\mongodb\src\operations\execute_operation.ts:119:12)
+    at async Collection.updateOne (C:\404\real Projects\libery\server\node_modules\mongodb\src\collection.ts:410:12)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:493:9)
+[2026-11-04T22:32:02.831Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T22:39:32.164Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T22:43:19.113Z] Book #1255 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1255/1255.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T22:52:53.850Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T22:53:02.931Z] Book #1255 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1255/1255.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:01:53.089Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:02:02.136Z] Book #1255 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1255/1255.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:02:18.916Z] Book #14550 failed: Error: Could not download plain text for Project Gutenberg book #14550
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:09:26.328Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:09:36.555Z] Book #1255 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1255/1255.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:09:41.195Z] Book #14550 failed: Error: Could not download plain text for Project Gutenberg book #14550
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:11:46.916Z] Book #1647 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1647/1647.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:15:37.588Z] Book #17392 failed: Error: Could not download plain text for Project Gutenberg book #17392
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:20:14.568Z] Book #1073 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1073/1073.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:20:24.440Z] Book #1255 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1255/1255.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:20:26.468Z] Book #14550 failed: Error: Could not download plain text for Project Gutenberg book #14550
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:20:35.406Z] Book #1647 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1647/1647.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-04T23:20:37.634Z] Book #17392 failed: Error: Could not download plain text for Project Gutenberg book #17392
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)

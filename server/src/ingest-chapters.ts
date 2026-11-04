@@ -1,8 +1,15 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+if (existsSync(resolve(process.cwd(), 'server/.env'))) {
+  dotenv.config({ path: resolve(process.cwd(), 'server/.env') });
+} else {
+  dotenv.config();
+}
 
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { MongoClient, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
 
@@ -309,15 +316,18 @@ type IngestOptions = {
 
 export async function ingestGutenbergBooks(options: IngestOptions = {}) {
   const config = readConfig();
-  const apply = options.apply ?? process.argv.includes('--apply');
+  const apply = options.apply ?? (process.argv.includes('--apply') || process.argv.some((a) => a.startsWith('--ids')));
   const rateLimitMs = options.rateLimitMs ?? 750;
 
   // Determine which Gutenberg IDs to process
   let targetIds: string[] = [];
 
   const idsArg = process.argv.find((arg) => arg.startsWith('--ids='));
+  const idsIndex = process.argv.indexOf('--ids');
   if (idsArg) {
     targetIds = idsArg.slice('--ids='.length).split(',').map((id) => id.trim()).filter(Boolean);
+  } else if (idsIndex !== -1 && process.argv[idsIndex + 1] && !process.argv[idsIndex + 1].startsWith('--')) {
+    targetIds = process.argv[idsIndex + 1].split(',').map((id) => id.trim()).filter(Boolean);
   } else if (options.ids && options.ids.length > 0) {
     targetIds = options.ids;
   }
@@ -327,9 +337,8 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
 
   const client = new MongoClient(config.mongoUri, {
     appName: 'libery-chapter-ingester',
-    ...(config.nodeEnv === 'production' ? { tls: true } : {}),
-    maxPoolSize: 5,
-    serverSelectionTimeoutMS: 5000,
+    serverSelectionTimeoutMS: 15000,
+    tlsAllowInvalidCertificates: true,
   });
 
   await client.connect();
@@ -343,18 +352,28 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
     { unique: true, name: 'chapters_book_chapter_unique' },
   );
 
+  const force = process.argv.includes('--force');
+
   try {
     // If no explicit IDs provided, select from existing MongoDB books or popular list
     if (targetIds.length === 0) {
-      const existingBooks = await booksCollection
-        .find({ sourceName: 'Project Gutenberg', sourceId: { $exists: true } })
-        .limit(limit)
-        .toArray();
-
-      if (existingBooks.length > 0) {
-        targetIds = existingBooks.map((b) => String(b.sourceId));
-      } else {
+      if (process.argv.includes('--popular')) {
         targetIds = POPULAR_GUTENBERG_IDS.slice(0, limit);
+      } else {
+        const pendingBooks = await booksCollection
+          .find({
+            sourceName: 'Project Gutenberg',
+            sourceId: { $exists: true },
+            availability: { $ne: 'in_app_text' },
+          })
+          .limit(limit)
+          .toArray();
+
+        if (pendingBooks.length > 0) {
+          targetIds = pendingBooks.map((b) => String(b.sourceId));
+        } else {
+          targetIds = POPULAR_GUTENBERG_IDS.slice(0, limit);
+        }
       }
     } else {
       targetIds = targetIds.slice(0, limit);
@@ -364,11 +383,28 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
 
     let processedCount = 0;
     let successCount = 0;
+    let skippedCount = 0;
     let failureCount = 0;
 
     for (const gutenbergId of targetIds) {
       processedCount++;
       console.info(`[${processedCount}/${targetIds.length}] Fetching Gutenberg book #${gutenbergId}...`);
+
+      // Skip already ingested books unless --force is specified
+      if (!force) {
+        const alreadyIngested = await booksCollection.findOne({
+          $or: [
+            { sourceId: gutenbergId },
+            { providerId: `source:project-gutenberg:${gutenbergId}` },
+          ],
+          availability: 'in_app_text',
+        });
+        if (alreadyIngested) {
+          console.info(`  ⏭ #${gutenbergId}: "${alreadyIngested.title}" already has chapters ingested. Skipping.`);
+          skippedCount++;
+          continue;
+        }
+      }
 
       try {
         const rawText = await fetchGutenbergText(gutenbergId);
@@ -478,7 +514,7 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
       await delay(rateLimitMs);
     }
 
-    console.info(`\nIngestion complete! Successfully processed: ${successCount}, Failures: ${failureCount}`);
+    console.info(`\nIngestion complete! Successfully processed: ${successCount}, Skipped: ${skippedCount}, Failures: ${failureCount}`);
   } finally {
     await client.close();
   }

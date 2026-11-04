@@ -24,6 +24,7 @@ import { useAudioPlayer } from '../../context/AudioPlayerContext';
 import { ChapterList } from '../../components/ChapterList';
 import { toAppBook, type Book } from '../../data/books';
 import {
+  ApiRequestError,
   fetchChapter,
   fetchReadingProgress,
   saveReadingProgress,
@@ -236,6 +237,13 @@ export default function ReaderScreen() {
       })
       .catch((err: unknown) => {
         if (!active) return;
+        // For 404 (chapter not found), skip cache lookup — it won't help
+        const isNotFound = err instanceof ApiRequestError && err.status === 404;
+        if (isNotFound) {
+          setChapterError('Chapter was not found.');
+          setLoadingChapter(false);
+          return;
+        }
         AsyncStorage.getItem(cacheKey)
           .then((cached) => {
             if (active && cached) {
@@ -353,6 +361,52 @@ export default function ReaderScreen() {
           <Text style={[styles.titleText, { color: currentTheme.text }]}>Could not open book</Text>
           <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>{fetchFailure.error}</Text>
           <Link href="/" style={styles.backButton}>Return to Home</Link>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Book exists but hasn't been ingested for in-app reading yet
+  if (book && book.availability !== 'in_app_text') {
+    return (
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: currentTheme.bg }]}>
+        <View style={[styles.header, { backgroundColor: currentTheme.headerBg, borderBottomColor: currentTheme.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to book details"
+            onPress={() => router.push(`/book/${id}`)}
+            style={styles.headerIconButton}
+          >
+            <Ionicons name="chevron-back" size={24} color={currentTheme.text} />
+          </Pressable>
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerBookTitle, { color: currentTheme.text }]} numberOfLines={1}>
+              {book.title}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.centerContainer}>
+          <Ionicons name="book-outline" size={56} color={currentTheme.secondaryText} />
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>Not yet available in-app</Text>
+          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>
+            {`This book hasn’t been processed for in-app reading yet.\nYou can read it directly on the original source.`}
+          </Text>
+          {book.sourceUrl && (
+            <Pressable
+              accessibilityRole="link"
+              onPress={() => void Linking.openURL(book.sourceUrl!)}
+              style={styles.actionPill}
+            >
+              <Text style={styles.actionPillText}>Read at {book.sourceName || 'Source'}</Text>
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(`/book/${id}`)}
+            style={[styles.actionPill, { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.primary, marginTop: 8 }]}
+          >
+            <Text style={[styles.actionPillText, { color: palette.primary }]}>← Back to Book Details</Text>
+          </Pressable>
         </View>
       </SafeAreaView>
     );
@@ -499,15 +553,19 @@ export default function ReaderScreen() {
       ) : chapterError ? (
         <View style={styles.centerContainer}>
           <Ionicons name="document-text-outline" size={48} color={currentTheme.secondaryText} />
-          <Text style={[styles.titleText, { color: currentTheme.text }]}>Chapter not loaded</Text>
-          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>{chapterError}</Text>
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>Chapter not available</Text>
+          <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>
+            {chapterError === 'Chapter was not found.'
+              ? 'This chapter hasn\'t been processed for in-app reading yet.'
+              : chapterError}
+          </Text>
           {book?.sourceUrl && (
             <Pressable
               accessibilityRole="link"
               onPress={() => void Linking.openURL(book.sourceUrl!)}
               style={styles.actionPill}
             >
-              <Text style={styles.actionPillText}>Read at Source ({book.sourceName || 'Gutenberg'})</Text>
+              <Text style={styles.actionPillText}>Read at {book.sourceName || 'Source'}</Text>
             </Pressable>
           )}
         </View>
