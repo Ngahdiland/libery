@@ -73,7 +73,7 @@ function formatTimeAgo(dateStr: string | Date): string {
 export default function HomeScreen() {
   const router = useRouter();
   const { preferences } = useReaderPreferences();
-  const { books, isCloudCatalog, isLoading } = useCatalog();
+  const { books } = useCatalog();
   const { user, accessToken } = useAuth();
   const { items: libraryItems } = useReadingLibrary();
 
@@ -333,14 +333,14 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          <Pressable
+          {/* <Pressable
             accessibilityRole="button"
             accessibilityLabel="Notifications"
             onPress={() => router.push('/notifications')}
             style={styles.notificationBadge}
           >
             <Ionicons name="notifications-outline" size={18} color="#fff" />
-          </Pressable>
+          </Pressable> */}
         </View>
 
         {/* Guest Banner if not signed in */}
@@ -366,7 +366,7 @@ export default function HomeScreen() {
         )}
 
         {/* Live Catalog Banner */}
-        <View style={styles.catalogIndicator}>
+        {/* <View style={styles.catalogIndicator}>
           <View style={styles.indicatorDot} />
           <Text style={styles.indicatorText}>
             {isCloudCatalog
@@ -375,7 +375,7 @@ export default function HomeScreen() {
                 ? 'Connecting to MongoDB Atlas Cloud…'
                 : `Libery Catalog · ${availableBooks.length} books ready`}
           </Text>
-        </View>
+        </View> */}
 
         {/* Threads Quick Post Composer Bar */}
         <Pressable
