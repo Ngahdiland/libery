@@ -91,27 +91,12 @@ export class ApiRequestError extends Error {
   }
 }
 
-export function getApiBaseUrl() {
+export function getApiBaseUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '');
-
-  // On web:
-  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.location?.hostname) {
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return `${window.location.protocol}//${window.location.hostname}:4000`;
-    }
-    return configured || 'http://localhost:4000';
+  if (configured) {
+    return configured;
   }
-
-  // On native mobile (Expo Go or emulator): automatically connect to dev server host IP
-  if (Platform.OS !== 'web') {
-    const hostUri = Constants.expoConfig?.hostUri;
-    if (hostUri) {
-      const host = hostUri.split(':')[0];
-      return `http://${host}:4000`;
-    }
-  }
-
-  return configured || 'http://localhost:4000';
+  return 'https://librahubserver.onrender.com';
 }
 
 export function getApiErrorMessage(payload: unknown, fallback: string) {
@@ -135,34 +120,54 @@ export async function apiRequest<T>(
   accessToken?: string,
 ): Promise<T> {
   const baseUrl = getApiBaseUrl();
-  if (!baseUrl) {
-    throw new Error('Set EXPO_PUBLIC_API_URL in the app environment to connect the Libery API.');
-  }
 
   const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
-  const response = await fetch(`${baseUrl}/v1${path}`, {
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      ...options.headers,
-    },
-  });
-  const payload: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
-  if (!response.ok) {
-    const code = typeof payload === 'object' && payload !== null
-      && 'error' in payload && typeof payload.error === 'object' && payload.error !== null
-      && 'code' in payload.error && typeof payload.error.code === 'string'
-      ? payload.error.code
-      : undefined;
-    throw new ApiRequestError(
-      getApiErrorMessage(payload, `The API request failed (${response.status}).`),
-      response.status,
-      code,
-    );
+
+  // Render free tier can take up to 60s on cold start
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 65000);
+
+  try {
+    const response = await fetch(`${baseUrl}/v1${path}`, {
+      ...options,
+      signal: options.signal || controller.signal,
+      headers: {
+        Accept: 'application/json',
+        ...(options.body && !isFormData ? { 'Content-Type': 'application/json' } : {}),
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        ...options.headers,
+      },
+    });
+    clearTimeout(timeoutId);
+
+    const payload: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
+    if (!response.ok) {
+      const code = typeof payload === 'object' && payload !== null
+        && 'error' in payload && typeof payload.error === 'object' && payload.error !== null
+        && 'code' in payload.error && typeof payload.error.code === 'string'
+        ? payload.error.code
+        : undefined;
+      throw new ApiRequestError(
+        getApiErrorMessage(payload, `The API request failed (${response.status}).`),
+        response.status,
+        code,
+      );
+    }
+    return payload as T;
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof ApiRequestError) {
+      throw err;
+    }
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiRequestError(
+        'The server is waking up from standby (Render free tier). Please retry in a few moments.',
+        504,
+        'SERVER_WAKING_UP',
+      );
+    }
+    throw err;
   }
-  return payload as T;
 }
 
 export async function fetchCommunityPosts(limit = 20, accessToken?: string): Promise<ApiCommunityPost[]> {

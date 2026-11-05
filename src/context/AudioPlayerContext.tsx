@@ -82,7 +82,7 @@ export function AudioPlayerProvider({ children }: { children: React.ReactNode })
   const speechRateRef = useRef(1.0);
   const selectedVoiceRef = useRef<string | null>(null);
   const onAdvanceChapterRef = useRef<((nextChapter: number) => void) | null>(null);
-  const sleepTimerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sleepTimerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const speakSentenceAtRef = useRef<(idx: number) => Promise<void>>(() => Promise.resolve());
   const stopRef = useRef<() => Promise<void>>(() => Promise.resolve());
 

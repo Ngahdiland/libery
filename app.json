@@ -16,6 +16,7 @@
       }
     },
     "android": {
+      "package": "lat.ngahdiland.librahub",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/app-icon.png",
@@ -43,7 +44,8 @@
         }
       ],
       "expo-audio",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-asset"
     ]
   }
 }
