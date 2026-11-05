@@ -470,14 +470,14 @@ export function createApiRouter(store: AppStore, config: AppConfig) {
     response.json({ posts });
   }));
 
-  router.post('/posts', auth, asyncRoute(async (request, response) => {
+  router.post('/posts', maybeAuth, asyncRoute(async (request, response) => {
     const body = createPostSchema.parse(request.body);
     const post = await store.createCommunityPost({
-      userId: request.user!.id,
+      userId: request.user?.id ?? 'guest_reader',
       author: {
-        username: request.user!.username,
-        displayName: request.user!.displayName,
-        avatarUrl: request.user!.avatarUrl,
+        username: request.user?.username ?? 'curious_reader',
+        displayName: request.user?.displayName ?? 'Curious Reader',
+        avatarUrl: request.user?.avatarUrl,
       },
       content: body.content,
       bookId: body.bookId,

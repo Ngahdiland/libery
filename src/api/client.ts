@@ -172,7 +172,7 @@ export async function fetchCommunityPosts(limit = 20, accessToken?: string): Pro
 
 export async function createCommunityPost(
   input: { content: string; bookId?: string },
-  accessToken: string,
+  accessToken?: string,
 ): Promise<ApiCommunityPost> {
   const res = await apiRequest<{ post: ApiCommunityPost }>('/posts', {
     method: 'POST',
@@ -205,7 +205,7 @@ export async function fetchReadingProgress(bookId: string, accessToken: string):
 export async function saveReadingProgress(
   bookId: string,
   progress: { chapterNumber: number; textPosition: number; audioPositionSeconds: number },
-  accessToken: string,
+  accessToken?: string,
 ): Promise<ApiReadingProgress> {
   const res = await apiRequest<{ progress: ApiReadingProgress }>(`/me/progress/${encodeURIComponent(bookId)}`, {
     method: 'PUT',

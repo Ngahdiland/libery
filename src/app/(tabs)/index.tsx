@@ -206,7 +206,18 @@ export default function HomeScreen() {
         ? recommendations.tailoredPicks
         : availableBooks.slice(0, 6);
 
-    const posts = [...userPosts, ...dbFeedPosts, ...communityFeedPosts];
+    const seenBookIds = new Set<string>();
+    for (const p of userPosts) {
+      if (p.book?.id) seenBookIds.add(p.book.id);
+    }
+    for (const p of dbFeedPosts) {
+      if (p.book?.id) seenBookIds.add(p.book.id);
+    }
+    const freshCommunityPosts = communityFeedPosts.filter(
+      (p) => !p.book?.id || !seenBookIds.has(p.book.id),
+    );
+
+    const posts = [...userPosts, ...dbFeedPosts, ...freshCommunityPosts];
 
     posts.forEach((post, idx) => {
       items.push({ kind: 'post', data: post });
@@ -274,28 +285,27 @@ export default function HomeScreen() {
     setComposerText('');
     setIsComposerOpen(false);
 
-    if (accessToken) {
-      try {
-        const created = await createCommunityPost(
-          {
-            content: text,
-            bookId: bookId && /^[a-fA-F0-9]{24}$/.test(bookId) ? bookId : undefined,
-          },
-          accessToken,
-        );
-        setUserPosts((prev) =>
-          prev.map((p) =>
-            p.id === tempId
-              ? {
-                  ...p,
-                  id: created.id,
-                }
-              : p,
-          ),
-        );
-      } catch (err) {
-        console.warn('Could not save post to database:', err);
-      }
+    try {
+      const created = await createCommunityPost(
+        {
+          content: text,
+          bookId: bookId && /^[a-fA-F0-9]{24}$/.test(bookId) ? bookId : undefined,
+        },
+        accessToken ?? undefined,
+      );
+      setUserPosts((prev) =>
+        prev.map((p) =>
+          p.id === tempId
+            ? {
+                ...p,
+                id: created.id,
+              }
+            : p,
+        ),
+      );
+      void loadCommunityPosts();
+    } catch (err) {
+      console.warn('Could not save post to database:', err);
     }
   };
 

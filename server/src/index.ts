@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 import { createApp } from './app.js';
 import { readConfig } from './config.js';
+import { SystemPosterService } from './services/systemPoster.js';
 import { MongoStore } from './store/mongo.js';
 
 async function main() {
@@ -12,7 +13,12 @@ async function main() {
     console.info(`Libery API listening on port ${config.port}`);
   });
 
+  // Automated 10-per-day daytime system posting service (Canada / American time)
+  const systemPoster = new SystemPosterService(store);
+  systemPoster.startPeriodicWorker(5 * 60 * 1000);
+
   const shutdown = () => {
+    systemPoster.stop();
     server.close(() => {
       void store.close().finally(() => process.exit(0));
     });

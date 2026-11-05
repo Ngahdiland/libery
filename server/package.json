@@ -13,6 +13,7 @@
     "seed": "tsx src/seed.ts",
     "import:gutenberg": "tsx src/import-gutenberg.ts",
     "ingest:chapters": "tsx src/ingest-chapters.ts",
+    "system:post": "tsx src/scripts/system-post.ts",
     "generate:audio": "tsx src/scripts/generate-piper-audio.ts"
   },
   "dependencies": {

@@ -97,6 +97,7 @@ export type UserProfileUpdates = Partial<Pick<User, 'displayName' | 'bio' | 'ava
 export type CommunityPost = {
   id: string;
   userId: string;
+  slotKey?: string;
   author: {
     username: string;
     displayName: string;
@@ -112,6 +113,7 @@ export type CommunityPost = {
 
 export type CreateCommunityPostInput = {
   userId: string;
+  slotKey?: string;
   author: {
     username: string;
     displayName: string;
@@ -119,6 +121,9 @@ export type CreateCommunityPostInput = {
   };
   content: string;
   bookId?: string;
+  likesCount?: number;
+  commentsCount?: number;
+  createdAt?: Date;
 };
 
 /**
@@ -167,6 +172,8 @@ export interface AppStore {
   createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost>;
   listCommunityPosts(limit?: number): Promise<CommunityPost[]>;
   likeCommunityPost(postId: string): Promise<number | null>;
+  findCommunityPostBySlotKey?(slotKey: string): Promise<CommunityPost | null>;
+  listReadableBooks?(): Promise<PublicBook[]>;
 
   // ── Library ────────────────────────────────────────────────────────────────
   listLibrary(userId: string, ageGroup: AgeGroup, languages: string[]): Promise<LibraryBook[]>;

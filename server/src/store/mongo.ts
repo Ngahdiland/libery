@@ -37,6 +37,7 @@ type LibraryDocument = {
 type PostDocument = {
   _id: ObjectId;
   userId: string;
+  slotKey?: string;
   author: {
     username: string;
     displayName: string;
@@ -196,6 +197,7 @@ export class MongoStore implements AppStore {
       // Community posts
       this.posts.createIndex({ createdAt: -1 }, { name: 'posts_created_at' }),
       this.posts.createIndex({ userId: 1, createdAt: -1 }, { name: 'posts_user_created' }),
+      this.posts.createIndex({ slotKey: 1 }, { unique: true, sparse: true, name: 'posts_slot_key_unique' }),
       // Chapters — compound index on bookId + chapterNumber (the primary query pattern)
       this.chapters.createIndex(
         { bookId: 1, chapterNumber: 1 },
@@ -258,12 +260,13 @@ export class MongoStore implements AppStore {
   async createCommunityPost(input: CreateCommunityPostInput): Promise<CommunityPost> {
     const doc: Omit<PostDocument, '_id'> = {
       userId: input.userId,
+      slotKey: input.slotKey,
       author: input.author,
       content: input.content,
       bookId: input.bookId,
-      likesCount: 0,
-      commentsCount: 0,
-      createdAt: new Date(),
+      likesCount: input.likesCount ?? 0,
+      commentsCount: input.commentsCount ?? 0,
+      createdAt: input.createdAt ?? new Date(),
     };
     const res = await this.posts.insertOne(doc as any);
     let book: PublicBook | undefined;
@@ -274,6 +277,7 @@ export class MongoStore implements AppStore {
     return {
       id: res.insertedId.toHexString(),
       userId: doc.userId,
+      slotKey: doc.slotKey,
       author: doc.author,
       content: doc.content,
       bookId: doc.bookId,
@@ -297,6 +301,7 @@ export class MongoStore implements AppStore {
     return docs.map((d) => ({
       id: d._id.toHexString(),
       userId: d.userId,
+      slotKey: d.slotKey,
       author: d.author,
       content: d.content,
       bookId: d.bookId,
@@ -305,6 +310,38 @@ export class MongoStore implements AppStore {
       commentsCount: d.commentsCount ?? 0,
       createdAt: d.createdAt,
     }));
+  }
+
+  async findCommunityPostBySlotKey(slotKey: string): Promise<CommunityPost | null> {
+    const doc = await this.posts.findOne({ slotKey });
+    if (!doc) return null;
+    let book: PublicBook | undefined;
+    if (doc.bookId && ObjectId.isValid(doc.bookId)) {
+      const bookDoc = await this.books.findOne({ _id: new ObjectId(doc.bookId) });
+      if (bookDoc) book = toPublicBook(bookDoc);
+    }
+    return {
+      id: doc._id.toHexString(),
+      userId: doc.userId,
+      slotKey: doc.slotKey,
+      author: doc.author,
+      content: doc.content,
+      bookId: doc.bookId,
+      book,
+      likesCount: doc.likesCount ?? 0,
+      commentsCount: doc.commentsCount ?? 0,
+      createdAt: doc.createdAt,
+    };
+  }
+
+  async listReadableBooks(): Promise<PublicBook[]> {
+    const docs = await this.books
+      .find({
+        $or: [{ availability: 'in_app_text' }, { totalChapters: { $gt: 0 } }],
+        status: 'published',
+      })
+      .toArray();
+    return docs.map(toPublicBook);
   }
 
   async likeCommunityPost(postId: string): Promise<number | null> {
