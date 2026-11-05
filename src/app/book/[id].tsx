@@ -1,6 +1,7 @@
 import { Link, router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Linking,
   Modal,
   Pressable,
@@ -22,6 +23,12 @@ import { useAuth } from '../../context/AuthContext';
 import { useComments } from '../../context/CommentsContext';
 import { toAppBook, type Book } from '../../data/books';
 import { fetchReadingProgress, type ApiBook, type ApiReadingProgress } from '../../api/client';
+import {
+  checkBookUpdate,
+  deleteDownload,
+  downloadBook,
+  isBookDownloaded,
+} from '../../offline';
 import { palette, radii, spacing } from '../../theme';
 
 export default function BookDetailScreen() {
@@ -85,6 +92,106 @@ export default function BookDetailScreen() {
       active = false;
     };
   }, [id, accessToken]);
+
+  const [isDownloaded, setIsDownloaded] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [hasUpdate, setHasUpdate] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Check download status & update availability
+  useEffect(() => {
+    if (!book?.id) return;
+    let active = true;
+
+    void isBookDownloaded(book.id).then((downloaded) => {
+      if (!active) return;
+      setIsDownloaded(downloaded);
+
+      if (downloaded) {
+        const serverVersion = (book as any).updatedAt || (book as any).createdAt;
+        if (serverVersion) {
+          void checkBookUpdate(book.id, String(serverVersion)).then((res) => {
+            if (active) setHasUpdate(res.hasUpdate);
+          });
+        }
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [book]);
+
+  const handleStartDownload = async () => {
+    if (!book) return;
+    setDownloadError(null);
+    setIsDownloading(true);
+    setDownloadProgress(0);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    try {
+      await downloadBook(
+        {
+          id: book.id,
+          title: book.title,
+          author: book.author,
+          coverImageUrl: book.coverImageUrl,
+          version: (book as any).updatedAt ? String((book as any).updatedAt) : undefined,
+        },
+        {
+          accessToken: accessToken || undefined,
+          signal: controller.signal,
+          onProgress: (ratio) => setDownloadProgress(ratio),
+        },
+      );
+      setIsDownloaded(true);
+      setHasUpdate(false);
+    } catch (err: unknown) {
+      if (controller.signal.aborted) {
+        setDownloadError('Download was cancelled.');
+      } else {
+        const msg = err instanceof Error ? err.message : 'Download failed.';
+        setDownloadError(msg);
+      }
+    } finally {
+      setIsDownloading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelDownload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
+  const handleRemoveDownload = () => {
+    if (!book) return;
+    Alert.alert(
+      'Remove Download',
+      `Delete downloaded chapters of "${book.title}" from your device storage?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteDownload(book.id);
+              setIsDownloaded(false);
+              setHasUpdate(false);
+            } catch {
+              Alert.alert('Error', 'Failed to remove local download.');
+            }
+          },
+        },
+      ],
+    );
+  };
 
   if (!book) {
     return (
@@ -259,6 +366,94 @@ export default function BookDetailScreen() {
             </Text>
           </Pressable>
         </View>
+
+        {/* Offline Download Card */}
+        {hasInAppChapters && (
+          <View style={styles.downloadSection}>
+            {isDownloading ? (
+              <View style={styles.downloadingCard}>
+                <View style={styles.downloadingHeader}>
+                  <View style={styles.downloadingTitleRow}>
+                    <Ionicons name="cloud-download-outline" size={18} color={palette.primary} />
+                    <Text style={styles.downloadingTitle}>
+                      Downloading chapters… ({Math.round(downloadProgress * 100)}%)
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel download"
+                    onPress={handleCancelDownload}
+                    style={styles.cancelDownloadButton}
+                    hitSlop={6}
+                  >
+                    <Text style={styles.cancelDownloadText}>Cancel</Text>
+                  </Pressable>
+                </View>
+
+                {/* Progress bar */}
+                <View style={styles.progressBarTrack}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      { width: `${Math.max(6, Math.min(100, Math.round(downloadProgress * 100)))}%` },
+                    ]}
+                  />
+                </View>
+              </View>
+            ) : isDownloaded ? (
+              <View style={styles.downloadedCard}>
+                <View style={styles.downloadedInfoRow}>
+                  <View style={styles.downloadedBadge}>
+                    <Ionicons name="checkmark-circle" size={18} color="#0E5C38" />
+                    <Text style={styles.downloadedBadgeText}>Downloaded for offline reading</Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove downloaded book"
+                    onPress={handleRemoveDownload}
+                    style={styles.removeDownloadButton}
+                    hitSlop={6}
+                  >
+                    <Ionicons name="trash-outline" size={15} color="#B91C1C" />
+                    <Text style={styles.removeDownloadText}>Remove</Text>
+                  </Pressable>
+                </View>
+
+                {hasUpdate && (
+                  <View style={styles.updateAvailableRow}>
+                    <Text style={styles.updateAvailableText}>A newer version is on the server.</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={handleStartDownload}
+                      style={styles.refreshDownloadButton}
+                    >
+                      <Text style={styles.refreshDownloadText}>Update</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Download book for offline reading"
+                onPress={handleStartDownload}
+                style={styles.downloadButton}
+              >
+                <Ionicons name="arrow-down-circle-outline" size={22} color={palette.primary} />
+                <View style={styles.downloadButtonTextCol}>
+                  <Text style={styles.downloadButtonTitle}>Download for offline reading</Text>
+                  <Text style={styles.downloadButtonSubtitle}>Read all chapters anywhere without internet</Text>
+                </View>
+              </Pressable>
+            )}
+
+            {downloadError && (
+              <Text accessibilityRole="alert" style={styles.downloadErrorText}>
+                {downloadError}
+              </Text>
+            )}
+          </View>
+        )}
 
         {actionError && <Text accessibilityRole="alert" style={styles.actionError}>{actionError}</Text>}
 
@@ -577,5 +772,142 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: '#fff',
     fontWeight: '700',
+  },
+  downloadSection: {
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: '#F0FAF4',
+    borderWidth: 1,
+    borderColor: '#D1EADE',
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
+  downloadButtonTextCol: {
+    flex: 1,
+  },
+  downloadButtonTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: palette.primaryDark,
+  },
+  downloadButtonSubtitle: {
+    fontSize: 12,
+    color: palette.muted,
+    marginTop: 2,
+  },
+  downloadingCard: {
+    backgroundColor: '#F0FAF4',
+    borderWidth: 1,
+    borderColor: '#D1EADE',
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
+  downloadingHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  downloadingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  downloadingTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: palette.primaryDark,
+  },
+  cancelDownloadButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radii.sm,
+    backgroundColor: '#FEE2E2',
+  },
+  cancelDownloadText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  progressBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#DCEDE2',
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: palette.primary,
+    borderRadius: 3,
+  },
+  downloadedCard: {
+    backgroundColor: '#F0FAF4',
+    borderWidth: 1,
+    borderColor: '#C7E4D5',
+    borderRadius: radii.md,
+    padding: spacing.md,
+  },
+  downloadedInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  downloadedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  downloadedBadgeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0E5C38',
+  },
+  removeDownloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  removeDownloadText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#B91C1C',
+  },
+  updateAvailableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: '#DCEDE2',
+  },
+  updateAvailableText: {
+    fontSize: 12,
+    color: '#854D0E',
+    fontWeight: '600',
+  },
+  refreshDownloadButton: {
+    backgroundColor: '#CA8A04',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: radii.sm,
+  },
+  refreshDownloadText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  downloadErrorText: {
+    color: '#B91C1C',
+    fontSize: 12,
+    marginTop: 4,
+    paddingHorizontal: 2,
   },
 });

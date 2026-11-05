@@ -25,12 +25,12 @@ import { ChapterList } from '../../components/ChapterList';
 import { toAppBook, type Book } from '../../data/books';
 import {
   ApiRequestError,
-  fetchChapter,
   fetchReadingProgress,
   saveReadingProgress,
   type ApiBook,
   type ApiChapter,
 } from '../../api/client';
+import { getChapter, getDownloadedBook } from '../../offline';
 import { palette, radii, spacing } from '../../theme';
 
 type ReaderTheme = 'light' | 'sepia' | 'dark';
@@ -163,22 +163,52 @@ export default function ReaderScreen() {
     });
   };
 
-  // Fetch book metadata if needed
+  // Fetch book metadata if needed (checks local SQLite first, then API)
   useEffect(() => {
-    if (!id || book || !isReady || !accessToken) return;
+    if (!id || book) return;
     let active = true;
-    void request<{ book: ApiBook }>(`/books/${encodeURIComponent(id)}`)
-      .then(({ book: result }) => {
-        if (active) setFetchedBook(toAppBook(result));
-      })
-      .catch((error: unknown) => {
-        if (active) {
-          setFetchFailure({
-            id,
-            error: error instanceof Error ? error.message : 'Could not load book information.',
+
+    // Check local SQLite first for instant offline book metadata
+    void getDownloadedBook(id).then((downloaded) => {
+      if (!active) return;
+      if (downloaded) {
+        setFetchedBook({
+          id: downloaded.book_id,
+          title: downloaded.title,
+          author: downloaded.author || 'Unknown Author',
+          category: 'Literature',
+          coverColors: ['#0E5C38', '#147D4C'],
+          coverImageUrl: downloaded.cover_url || undefined,
+          description: '',
+          language: 'English',
+          ageRating: 'Adult',
+          rating: 5,
+          reviews: 0,
+          pages: 0,
+          provider: 'Offline Download',
+          availability: 'in_app_text',
+          totalChapters: downloaded.total_chapters,
+        });
+        return;
+      }
+
+      // If not downloaded and authenticated, fetch from backend API
+      if (isReady && accessToken) {
+        void request<{ book: ApiBook }>(`/books/${encodeURIComponent(id)}`)
+          .then(({ book: result }) => {
+            if (active) setFetchedBook(toAppBook(result));
+          })
+          .catch((error: unknown) => {
+            if (active) {
+              setFetchFailure({
+                id,
+                error: error instanceof Error ? error.message : 'Could not load book information.',
+              });
+            }
           });
-        }
-      });
+      }
+    });
+
     return () => {
       active = false;
     };
@@ -223,54 +253,29 @@ export default function ReaderScreen() {
       setChapterError(null);
     });
 
-    const cacheKey = `@libery_chapter_cache_${id}_${chapterNumber}`;
-
-    fetchChapter(id, chapterNumber, accessToken || undefined)
-      .then((data) => {
+    getChapter(id, chapterNumber, accessToken || undefined)
+      .then(({ chapter: data, isOffline }) => {
         if (active) {
           setChapter(data);
-          setIsOfflineCopy(false);
+          setIsOfflineCopy(isOffline);
           setLoadingChapter(false);
           scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-          void AsyncStorage.setItem(cacheKey, JSON.stringify(data));
         }
       })
       .catch((err: unknown) => {
         if (!active) return;
-        // For 404 (chapter not found), skip cache lookup — it won't help
         const isNotFound = err instanceof ApiRequestError && err.status === 404;
         if (isNotFound) {
           setChapterError('Chapter was not found.');
           setLoadingChapter(false);
           return;
         }
-        AsyncStorage.getItem(cacheKey)
-          .then((cached) => {
-            if (active && cached) {
-              try {
-                const parsed = JSON.parse(cached) as ApiChapter;
-                setChapter(parsed);
-                setIsOfflineCopy(true);
-                setLoadingChapter(false);
-                scrollViewRef.current?.scrollTo({ y: 0, animated: false });
-                return;
-              } catch {}
-            }
-            if (active) {
-              setChapterError(
-                err instanceof Error
-                  ? err.message
-                  : 'Could not load chapter content. Check your network connection.',
-              );
-              setLoadingChapter(false);
-            }
-          })
-          .catch(() => {
-            if (active) {
-              setChapterError('Could not load chapter content.');
-              setLoadingChapter(false);
-            }
-          });
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Could not load chapter content. Check your network connection.';
+        setChapterError(msg);
+        setLoadingChapter(false);
       });
 
     return () => {
@@ -542,6 +547,16 @@ export default function ReaderScreen() {
         </View>
       )}
 
+      {/* Offline Copy Indicator */}
+      {isOfflineCopy && !loadingChapter && !chapterError && (
+        <View style={[styles.offlineCopyBanner, { backgroundColor: currentTheme.headerBg, borderBottomColor: currentTheme.border }]}>
+          <Ionicons name="checkmark-circle" size={13} color="#0E5C38" />
+          <Text style={[styles.offlineCopyBannerText, { color: currentTheme.secondaryText }]}>
+            Reading downloaded offline copy
+          </Text>
+        </View>
+      )}
+
       {/* Main Chapter Content */}
       {loadingChapter ? (
         <View style={styles.centerContainer}>
@@ -552,20 +567,33 @@ export default function ReaderScreen() {
         </View>
       ) : chapterError ? (
         <View style={styles.centerContainer}>
-          <Ionicons name="document-text-outline" size={48} color={currentTheme.secondaryText} />
-          <Text style={[styles.titleText, { color: currentTheme.text }]}>Chapter not available</Text>
+          <Ionicons
+            name={chapterError.toLowerCase().includes('offline') ? 'cloud-offline-outline' : 'document-text-outline'}
+            size={48}
+            color={currentTheme.secondaryText}
+          />
+          <Text style={[styles.titleText, { color: currentTheme.text }]}>
+            {chapterError.toLowerCase().includes('offline') ? 'Offline Mode' : 'Chapter not available'}
+          </Text>
           <Text style={[styles.metaText, { color: currentTheme.secondaryText }]}>
             {chapterError === 'Chapter was not found.'
-              ? 'This chapter hasn\'t been processed for in-app reading yet.'
+              ? "This chapter hasn't been processed for in-app reading yet."
               : chapterError}
           </Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/downloads')}
+            style={[styles.actionPill, { marginTop: 12 }]}
+          >
+            <Text style={styles.actionPillText}>View Downloaded Books</Text>
+          </Pressable>
           {book?.sourceUrl && (
             <Pressable
               accessibilityRole="link"
               onPress={() => void Linking.openURL(book.sourceUrl!)}
-              style={styles.actionPill}
+              style={[styles.actionPill, { backgroundColor: 'transparent', borderWidth: 1, borderColor: palette.primary, marginTop: 8 }]}
             >
-              <Text style={styles.actionPillText}>Read at {book.sourceName || 'Source'}</Text>
+              <Text style={[styles.actionPillText, { color: palette.primary }]}>Read at {book.sourceName || 'Source'}</Text>
             </Pressable>
           )}
         </View>
@@ -1019,5 +1047,17 @@ const styles = StyleSheet.create({
     color: palette.primary,
     fontWeight: '700',
     marginTop: 12,
+  },
+  offlineCopyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+  },
+  offlineCopyBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

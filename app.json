@@ -42,7 +42,8 @@
           "photosPermission": "The app needs access to your photos to upload a book cover."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-sqlite"
     ]
   }
 }

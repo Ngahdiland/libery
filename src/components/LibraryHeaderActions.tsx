@@ -174,6 +174,11 @@ export function LibraryHeaderActions() {
                 onPress={() => { closeDrawer(); router.navigate('/library'); }}
               />
               <DrawerItem
+                icon="cloud-download-outline"
+                label="Downloads"
+                onPress={() => { closeDrawer(); router.navigate('/downloads'); }}
+              />
+              <DrawerItem
                 icon="person-outline"
                 label="Profile"
                 onPress={() => { closeDrawer(); router.navigate('/profile'); }}

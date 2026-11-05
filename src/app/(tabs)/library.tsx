@@ -1,11 +1,13 @@
-import { Link } from 'expo-router';
-import { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { Link, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BookCover } from '../../components/BookCover';
 import { useAuth } from '../../context/AuthContext';
 import { useReadingLibrary, type LibraryStatus } from '../../context/ReadingLibraryContext';
+import { getStorageInfo, useNetworkStatus } from '../../offline';
 import { palette, radii, spacing } from '../../theme';
 
 type Shelf = LibraryStatus | 'favorites';
@@ -18,9 +20,19 @@ const shelves: { id: Shelf; label: string; tone: string }[] = [
 ];
 
 export default function LibraryScreen() {
+  const router = useRouter();
   const { items, isLoaded, error } = useReadingLibrary();
   const { user } = useAuth();
+  const { isOffline } = useNetworkStatus();
+  const [downloadCount, setDownloadCount] = useState(0);
   const [selectedShelf, setSelectedShelf] = useState<Shelf>('reading');
+
+  useEffect(() => {
+    void getStorageInfo()
+      .then((info) => setDownloadCount(info.count))
+      .catch(() => {});
+  }, []);
+
   const selectedItems = items.filter((item) => selectedShelf === 'favorites'
     ? item.isFavorite
     : item.status === selectedShelf);
@@ -31,6 +43,42 @@ export default function LibraryScreen() {
         <Text style={styles.subtitle}>
           {user ? 'Your reading list syncs with your Libery account.' : 'Your reading list is saved on this device.'}
         </Text>
+
+        {/* Offline Alert Banner */}
+        {isOffline && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push('/downloads')}
+            style={styles.offlineBanner}
+          >
+            <Ionicons name="cloud-offline-outline" size={18} color="#9A3412" />
+            <Text style={styles.offlineBannerText}>
+              Offline mode active. Tap to open your Downloaded books ({downloadCount}).
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#9A3412" />
+          </Pressable>
+        )}
+
+        {/* Downloads Quick Shortcut */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open downloaded books"
+          onPress={() => router.push('/downloads')}
+          style={styles.downloadsShortcut}
+        >
+          <View style={styles.downloadsShortcutLeft}>
+            <View style={styles.downloadsIconCircle}>
+              <Ionicons name="cloud-download-outline" size={18} color={palette.primary} />
+            </View>
+            <View>
+              <Text style={styles.downloadsShortcutTitle}>Downloaded Books</Text>
+              <Text style={styles.downloadsShortcutSubtitle}>
+                {downloadCount} {downloadCount === 1 ? 'book' : 'books'} saved on this device
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={palette.muted} />
+        </Pressable>
 
         <View style={styles.grid}>
           {shelves.map((shelf) => {
@@ -122,6 +170,59 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     marginBottom: spacing.md,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: '#FFEDD5',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    marginBottom: spacing.md,
+  },
+  offlineBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9A3412',
+    flex: 1,
+  },
+  downloadsShortcut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FAF4',
+    borderWidth: 1,
+    borderColor: '#D1EADE',
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    marginBottom: spacing.md,
+  },
+  downloadsShortcutLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  downloadsIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#DCEDE2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  downloadsShortcutTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: palette.primaryDark,
+  },
+  downloadsShortcutSubtitle: {
+    fontSize: 11,
+    color: palette.muted,
+    marginTop: 1,
   },
   grid: {
     flexDirection: 'row',
