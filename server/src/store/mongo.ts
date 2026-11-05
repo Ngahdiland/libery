@@ -1,4 +1,5 @@
-import { MongoClient, ObjectId, type Collection, type Filter } from 'mongodb';
+import zlib from 'node:zlib';
+import { MongoClient, ObjectId, Binary, type Collection, type Filter } from 'mongodb';
 
 import type {
   AgeGroup,
@@ -50,13 +51,14 @@ type PostDocument = {
   createdAt: Date;
 };
 
-/** Stored shape for a book chapter (text stored as-is, no chunking in the DB). */
+/** Stored shape for a book chapter. Text is compressed with gzip (textGz) to fit within Atlas 512 MB. */
 type ChapterDocument = {
   _id: ObjectId;
   bookId: string;
   chapterNumber: number;
   title: string;
-  text: string;
+  text?: string;
+  textGz?: Binary | Buffer;
   wordCount: number;
   audioUrl?: string;
 };
@@ -90,13 +92,26 @@ function toBook(document: BookDocument): Book {
 }
 
 function toChapterSummary(document: ChapterDocument): ChapterSummary {
-  const { _id, text: _text, ...rest } = document;
+  const { _id, text: _text, textGz: _textGz, ...rest } = document as any;
   return { ...rest, id: _id.toHexString() };
 }
 
 function toChapter(document: ChapterDocument): Chapter {
-  const { _id, ...rest } = document;
-  return { ...rest, id: _id.toHexString() };
+  const { _id, text, textGz, ...rest } = document;
+  let resolvedText = text || '';
+  if (!resolvedText && textGz) {
+    try {
+      const buf = Buffer.isBuffer(textGz)
+        ? textGz
+        : (textGz as any).buffer
+        ? Buffer.from((textGz as any).buffer)
+        : Buffer.from(textGz as any);
+      resolvedText = zlib.gunzipSync(buf).toString('utf8');
+    } catch (err) {
+      console.error(`Failed to decompress chapter ${_id.toHexString()}:`, err);
+    }
+  }
+  return { ...rest, id: _id.toHexString(), text: resolvedText };
 }
 
 function toProgress(document: ProgressDocument): ReadingProgress {
@@ -497,19 +512,19 @@ export class MongoStore implements AppStore {
   // ── Chapters ───────────────────────────────────────────────────────────────
 
   /**
-   * Returns the chapter index (without text) for a book, sorted by chapterNumber.
+   * Returns the chapter index (without text or compressed bytes) for a book, sorted by chapterNumber.
    * Used to render the chapter list on the Book Details screen.
    */
   async listChapters(bookId: string): Promise<ChapterSummary[]> {
     const docs = await this.chapters
-      .find({ bookId }, { projection: { text: 0 } })
+      .find({ bookId }, { projection: { text: 0, textGz: 0 } })
       .sort({ chapterNumber: 1 })
       .toArray();
     return docs.map(toChapterSummary);
   }
 
   /**
-   * Returns a single chapter with its full text.
+   * Returns a single chapter with its full text (automatically decompressed from textGz).
    * Returns null if the chapter does not exist.
    */
   async getChapter(bookId: string, chapterNumber: number): Promise<Chapter | null> {
@@ -519,17 +534,32 @@ export class MongoStore implements AppStore {
 
   /**
    * Bulk-upserts chapters from the ingestion pipeline.
+   * Automatically compresses plain text with gzip (level 9) into `textGz` to stay within Atlas free limits.
    * Uses `updateOne + upsert` keyed on (bookId, chapterNumber) so re-runs are safe.
    */
   async upsertChapters(chapters: Omit<Chapter, 'id'>[]): Promise<void> {
     if (chapters.length === 0) return;
-    const ops = chapters.map((chapter) => ({
-      updateOne: {
-        filter: { bookId: chapter.bookId, chapterNumber: chapter.chapterNumber },
-        update: { $set: chapter, $setOnInsert: { _id: new ObjectId() } },
-        upsert: true,
-      },
-    }));
+    const ops = chapters.map((chapter) => {
+      const compressed = zlib.gzipSync(Buffer.from(chapter.text, 'utf8'), { level: 9 });
+      return {
+        updateOne: {
+          filter: { bookId: chapter.bookId, chapterNumber: chapter.chapterNumber },
+          update: {
+            $set: {
+              bookId: chapter.bookId,
+              chapterNumber: chapter.chapterNumber,
+              title: chapter.title,
+              textGz: compressed,
+              wordCount: chapter.wordCount,
+              ...(chapter.audioUrl ? { audioUrl: chapter.audioUrl } : {}),
+            },
+            $unset: { text: '' },
+            $setOnInsert: { _id: new ObjectId() },
+          },
+          upsert: true,
+        },
+      };
+    });
     await this.chapters.bulkWrite(ops as any, { ordered: false });
   }
 

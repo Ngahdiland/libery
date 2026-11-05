@@ -11,6 +11,7 @@ if (existsSync(resolve(process.cwd(), 'server/.env'))) {
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import zlib from 'node:zlib';
 import { MongoClient, ObjectId, type AnyBulkWriteOperation } from 'mongodb';
 
 import { readConfig } from './config.js';
@@ -469,7 +470,7 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
           bookId = generatedId;
         }
 
-        // 2. Bulk upsert chapters into chapters collection
+        // 2. Bulk upsert chapters into chapters collection (compressed with gzip level 9)
         const chapterOps: AnyBulkWriteOperation<any>[] = parsedChapters.map((c) => ({
           updateOne: {
             filter: { bookId, chapterNumber: c.chapterNumber },
@@ -478,9 +479,10 @@ export async function ingestGutenbergBooks(options: IngestOptions = {}) {
                 bookId,
                 chapterNumber: c.chapterNumber,
                 title: c.title,
-                text: c.text,
+                textGz: zlib.gzipSync(Buffer.from(c.text, 'utf8'), { level: 9 }),
                 wordCount: c.wordCount,
               },
+              $unset: { text: '' },
               $setOnInsert: { _id: new ObjectId() },
             },
             upsert: true,
