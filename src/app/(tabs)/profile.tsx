@@ -399,7 +399,7 @@ export default function ProfileScreen() {
             onPress={() => {
               Alert.alert(
                 'Sign Out',
-                'Are you sure you want to sign out of your Libery cloud account?',
+                'Are you sure you want to sign out of your Libra Hub cloud account?',
                 [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Sign Out', style: 'destructive', onPress: () => void signOut() },
@@ -516,7 +516,7 @@ export default function ProfileScreen() {
               <Ionicons name="information-circle-outline" size={16} color="#92400E" />
               <Text style={styles.guardianNoticeText}>
                 Accounts for children under 13 require verified guardian consent. {user
-                  ? 'Your account age filter is also enforced by the Libery API.'
+                  ? 'Your account age filter is also enforced by the Libra Hub API.'
                   : 'This setting filters sample books on this device.'}
               </Text>
             </View>

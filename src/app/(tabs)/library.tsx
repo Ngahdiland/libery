@@ -41,7 +41,7 @@ export default function LibraryScreen() {
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Text style={styles.subtitle}>
-          {user ? 'Your reading list syncs with your Libery account.' : 'Your reading list is saved on this device.'}
+          {user ? 'Your reading list syncs with your Libra Hub account.' : 'Your reading list is saved on this device.'}
         </Text>
 
         {/* Offline Alert Banner */}

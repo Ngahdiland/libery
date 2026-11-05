@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -10,7 +12,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -98,6 +99,33 @@ export default function SignInScreen() {
   const scrollToTop = () => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
+
+  const handleInputFocus = (field: string, yOffset = 100) => {
+    setFocusedField(field);
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: yOffset, animated: true });
+    }, 120);
+  };
+
+  const [fadeAnim] = useState(() => new Animated.Value(0));
+  const [slideAnim] = useState(() => new Animated.Value(14));
+
+  useEffect(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(14);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 320,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, slideAnim, mode, loginStep, registerStep]);
 
   // ── Validation Helpers ────────────────────────────────────────────────────────
 
@@ -277,18 +305,18 @@ export default function SignInScreen() {
   return (
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={styles.safeArea}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 48 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
         style={styles.keyboardAvoid}
       >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-          <ScrollView
-            ref={scrollRef}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-            showsVerticalScrollIndicator={false}
-          >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          showsVerticalScrollIndicator={false}
+          onScrollBeginDrag={Keyboard.dismiss}
+        >
             {/* Top Navigation Bar: Back Arrow & Step Counter */}
             <View style={styles.navBar}>
               <Pressable
@@ -333,6 +361,16 @@ export default function SignInScreen() {
               </View>
             ) : null}
 
+            {/* App Branding Header */}
+            <View style={styles.brandContainer}>
+              <Image
+                source={require('../../assets/app-logo.png')}
+                style={styles.brandLogo}
+                resizeMode="contain"
+              />
+            </View>
+
+            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             {/* ════════════════════════════════════════════════════════════════════
                 SIGN-IN FLOW
                ════════════════════════════════════════════════════════════════════ */}
@@ -358,7 +396,7 @@ export default function SignInScreen() {
                           keyboardType="email-address"
                           returnKeyType="next"
                           onSubmitEditing={handleLoginContinueToPassword}
-                          onFocus={() => setFocusedField('loginEmail')}
+                          onFocus={() => handleInputFocus('loginEmail', 40)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setEmail}
                           placeholder="reader@example.com"
@@ -390,7 +428,7 @@ export default function SignInScreen() {
                       style={styles.switchModeBtn}
                     >
                       <Text style={styles.switchModeText}>
-                        New to Libery? <Text style={styles.switchModeHighlight}>Create an account</Text>
+                        New to Libra Hub? <Text style={styles.switchModeHighlight}>Create an account</Text>
                       </Text>
                     </Pressable>
                   </View>
@@ -420,7 +458,7 @@ export default function SignInScreen() {
                           autoComplete="current-password"
                           returnKeyType="go"
                           onSubmitEditing={() => void handleSignInSubmit()}
-                          onFocus={() => setFocusedField('loginPassword')}
+                          onFocus={() => handleInputFocus('loginPassword', 60)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setPassword}
                           placeholder="Enter your password"
@@ -451,7 +489,7 @@ export default function SignInScreen() {
                       style={[styles.primaryBtn, isSubmitting && styles.btnDisabled]}
                     >
                       <Text style={styles.primaryBtnText}>
-                        {isSubmitting ? 'Signing in…' : 'Sign in to Libery'}
+                        {isSubmitting ? 'Signing in…' : 'Sign in to Libra Hub'}
                       </Text>
                     </Pressable>
                   </View>
@@ -467,7 +505,7 @@ export default function SignInScreen() {
                 {/* Step 1: Name & Username */}
                 {registerStep === 1 && (
                   <View style={styles.stepCard}>
-                    <Text style={styles.stepEyebrow}>Welcome to Libery</Text>
+                    <Text style={styles.stepEyebrow}>Welcome to Libra Hub</Text>
                     <Text style={styles.stepTitle}>What should we call you?</Text>
                     <Text style={styles.stepSubtitle}>
                       Let’s set up your literary persona and profile.
@@ -514,7 +552,7 @@ export default function SignInScreen() {
                           autoCapitalize="words"
                           returnKeyType="next"
                           onSubmitEditing={() => usernameInputRef.current?.focus()}
-                          onFocus={() => setFocusedField('displayName')}
+                          onFocus={() => handleInputFocus('displayName', 40)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={(val) => {
                             setDisplayName(val);
@@ -553,7 +591,7 @@ export default function SignInScreen() {
                               handleRegisterStep1Next();
                             }
                           }}
-                          onFocus={() => setFocusedField('username')}
+                          onFocus={() => handleInputFocus('username', 100)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setUsername}
                           placeholder="janeausten"
@@ -575,7 +613,7 @@ export default function SignInScreen() {
                             autoCapitalize="words"
                             returnKeyType="done"
                             onSubmitEditing={handleRegisterStep1Next}
-                            onFocus={() => setFocusedField('providerName')}
+                            onFocus={() => handleInputFocus('providerName', 140)}
                             onBlur={() => setFocusedField(null)}
                             onChangeText={setProviderName}
                             placeholder="Publishing house / archive name"
@@ -634,7 +672,7 @@ export default function SignInScreen() {
                           keyboardType="email-address"
                           returnKeyType="next"
                           onSubmitEditing={handleRegisterStep2Next}
-                          onFocus={() => setFocusedField('registerEmail')}
+                          onFocus={() => handleInputFocus('registerEmail', 40)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setEmail}
                           placeholder="reader@example.com"
@@ -676,7 +714,7 @@ export default function SignInScreen() {
                           autoComplete="new-password"
                           returnKeyType="next"
                           onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
-                          onFocus={() => setFocusedField('regPassword')}
+                          onFocus={() => handleInputFocus('regPassword', 40)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setPassword}
                           placeholder="At least 8 characters"
@@ -709,7 +747,7 @@ export default function SignInScreen() {
                           autoComplete="new-password"
                           returnKeyType="done"
                           onSubmitEditing={handleRegisterStep3Next}
-                          onFocus={() => setFocusedField('confirmPassword')}
+                          onFocus={() => handleInputFocus('confirmPassword', 100)}
                           onBlur={() => setFocusedField(null)}
                           onChangeText={setConfirmPassword}
                           placeholder="Re-enter your password"
@@ -878,7 +916,7 @@ export default function SignInScreen() {
                       style={[styles.primaryBtn, isSubmitting && styles.btnDisabled, { marginTop: spacing.xl }]}
                     >
                       <Text style={styles.primaryBtnText}>
-                        {isSubmitting ? 'Personalizing your feed…' : 'Enter Libery'}
+                        {isSubmitting ? 'Personalizing your feed…' : 'Enter Libra Hub'}
                       </Text>
                       <Ionicons name="arrow-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
                     </Pressable>
@@ -886,12 +924,12 @@ export default function SignInScreen() {
                 )}
               </>
             )}
+            </Animated.View>
 
             <Text style={styles.footerNote}>
               Protected by private authentication & rotation tokens. No passwords stored in plain text.
             </Text>
           </ScrollView>
-        </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -914,7 +952,17 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     // Generous bottom padding so focused inputs and continue buttons
     // remain completely visible above the virtual keyboard!
-    paddingBottom: 220,
+    paddingBottom: 280,
+  },
+  brandContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    marginTop: spacing.xs,
+  },
+  brandLogo: {
+    width: 172,
+    height: 60,
   },
   navBar: {
     flexDirection: 'row',

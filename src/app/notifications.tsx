@@ -8,7 +8,7 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       <View style={styles.content}>
-        <Link href="/(tabs)" style={styles.backLink}>Back to Libery</Link>
+        <Link href="/(tabs)" style={styles.backLink}>Back to Libra Hub</Link>
         <Text style={styles.title}>Notifications</Text>
         <View style={styles.emptyState}>
           <Text style={styles.emptyTitle}>You’re all caught up</Text>

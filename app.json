@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "libery",
-    "slug": "libery",
+    "name": "Libra Hub",
+    "slug": "libra-hub",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "libery",
+    "scheme": "libra-hub",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -18,7 +18,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/app-icon.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },

@@ -38,7 +38,7 @@ export function Attribution({ book }: AttributionProps) {
       </View>
 
       <Text style={styles.disclaimerText}>
-        This book is distributed under open public domain licensing. Libery never hosts or stores copyrighted copies.
+        This book is distributed under open public domain licensing. Libra Hub never hosts or stores copyrighted copies.
       </Text>
 
       <View style={styles.actionsRow}>

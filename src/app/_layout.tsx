@@ -70,7 +70,16 @@ function AppNavigator() {
         </SafeAreaView>
       )}
       <View style={styles.stack}>
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            animation: 'slide_from_right',
+          }}
+        >
+          <Stack.Screen name="sign-in" options={{ animation: 'fade' }} />
+          <Stack.Screen name="downloads" options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
+        </Stack>
       </View>
       {!isAuthOrSetupRoute && <BottomNavigation />}
       <AudioPlayerBar />

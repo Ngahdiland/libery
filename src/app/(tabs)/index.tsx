@@ -351,7 +351,7 @@ export default function HomeScreen() {
                 <Ionicons name="sparkles" size={16} color={palette.primary} />
               </View>
               <View style={styles.guestBannerTextWrap}>
-                <Text style={styles.guestBannerTitle}>Welcome to Libery Feed</Text>
+                <Text style={styles.guestBannerTitle}>Welcome to Libra Hub Feed</Text>
                 <Text style={styles.guestBannerSubtitle}>
                   Explore 2,000+ timeless books and reader reflections. Sign in anytime to sync your shelf.
                 </Text>
@@ -373,7 +373,7 @@ export default function HomeScreen() {
               ? `Connected to MongoDB Atlas Cloud · ${availableBooks.length} books available`
               : isLoading
                 ? 'Connecting to MongoDB Atlas Cloud…'
-                : `Libery Catalog · ${availableBooks.length} books ready`}
+                : `Libra Hub Catalog · ${availableBooks.length} books ready`}
           </Text>
         </View> */}
 

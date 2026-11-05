@@ -204,7 +204,7 @@ export default function BookDetailScreen() {
           {!isFetchingBook && !accessToken && isReady && (
             <>
               <Text style={styles.meta}>Sign in to load this book from the catalog.</Text>
-              <Link href="/sign-in" style={styles.backLink}>Sign in to Libery</Link>
+              <Link href="/sign-in" style={styles.backLink}>Sign in to Libra Hub</Link>
             </>
           )}
           {fetchError && accessToken && (

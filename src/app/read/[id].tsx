@@ -447,7 +447,7 @@ export default function ReaderScreen() {
 
         <View style={styles.headerTitleContainer}>
           <Text style={[styles.headerBookTitle, { color: currentTheme.text }]} numberOfLines={1}>
-            {book?.title || 'Libery Reader'}
+            {book?.title || 'Libra Hub Reader'}
           </Text>
           <Text style={[styles.headerChapterTitle, { color: currentTheme.secondaryText }]} numberOfLines={1}>
             {chapter?.title ? chapter.title : `Chapter ${chapterNumber}`}
