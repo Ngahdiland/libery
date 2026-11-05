@@ -252,3 +252,21 @@
     at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
     at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
     at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-05T00:19:48.519Z] Book #1647 failed: Error: HTTP 403 from https://www.gutenberg.org/files/1647/1647.txt
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:280:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-05T00:19:50.544Z] Book #17392 failed: Error: Could not download plain text for Project Gutenberg book #17392
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
+[2026-11-05T00:20:03.998Z] Book #29765 failed: MongoInvalidArgumentError: Document is larger than the maximum size 16777216
+    at UnorderedBulkOperation.addToOperationsList (C:\404\real Projects\libery\server\node_modules\mongodb\src\bulk\unordered.ts:46:13)
+    at UnorderedBulkOperation.raw (C:\404\real Projects\libery\server\node_modules\mongodb\src\bulk\common.ts:1083:21)
+    at Collection.bulkWrite (C:\404\real Projects\libery\server\node_modules\mongodb\src\collection.ts:387:12)
+    at ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:490:34)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+[2026-11-05T00:20:06.057Z] Book #29784 failed: Error: Could not download plain text for Project Gutenberg book #29784
+    at fetchGutenbergText (C:\404\real Projects\libery\server\src\ingest-chapters.ts:295:22)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async ingestGutenbergBooks (C:\404\real Projects\libery\server\src\ingest-chapters.ts:410:25)
